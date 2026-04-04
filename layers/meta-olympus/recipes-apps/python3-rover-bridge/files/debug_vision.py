@@ -60,7 +60,7 @@ def capture_frame(cv2, np, width, height):
             "--output",   "-",
             "--width",    str(width),
             "--height",   str(height),
-            "--timeout",  "1000",
+            "--timeout",  "200",
             "--nopreview",
             "--encoding", "jpg",
         ],
