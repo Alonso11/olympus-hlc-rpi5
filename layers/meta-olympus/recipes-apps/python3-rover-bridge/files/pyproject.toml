@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "Olympus High-Level Controller — HLC software para Raspberry Pi 5 (Yocto)"
 requires-python = ">=3.11"
 
-# Dependencias mínimas para correr olympus_controller.py en el RPi5.
-# En la imagen Yocto estas las proveen las recetas python3-* del layer.
+# No hay dependencias de producción — en la imagen Yocto las proveen
+# las recetas python3-* del layer (python3-opencv, python3-numpy).
 dependencies = []
 
 [project.optional-dependencies]
@@ -13,8 +13,10 @@ dependencies = []
 dev = [
     "pytest>=8.0",
     "pytest-timeout>=2.3",
-    "opencv-python>=4.9",   # debug_view.py — requiere display (no headless)
+    "opencv-python>=4.9",   # debug_view.py — imdecode + color convert
     "numpy>=1.26",
+    "matplotlib>=3.8",      # debug_view.py — imshow via QtAgg (cv2.imshow no disponible)
+    "pyqt6>=6.0",           # matplotlib QtAgg backend
 ]
 
 [dependency-groups]
@@ -23,6 +25,8 @@ dev = [
     "pytest-timeout>=2.3",
     "opencv-python>=4.9",
     "numpy>=1.26",
+    "matplotlib>=3.8",
+    "pyqt6>=6.11.0",
 ]
 
 [tool.pytest.ini_options]

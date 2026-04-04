@@ -3,18 +3,19 @@
 debug_view.py — Visor local del stream de visión via SSH pipe.
 
 Corre en el PC. Lee frames JPEG de stdin (escritos por debug_vision.py en el RPi5)
-y los muestra en una ventana con cv2.imshow.
+y los muestra en una ventana con matplotlib (TkAgg).
 
 Protocolo de pipe:
   [4 bytes big-endian: longitud JPEG] [N bytes JPEG]
 
 Uso:
-  ssh pi@rpi5 "python3 /opt/olympus/debug_vision.py --mode seg" | python3 debug_view.py
+  ssh root@<IP_RPi5> "python3 /usr/bin/debug_vision.py --mode seg" | python3 debug_view.py
 
 Presionar 'q' o cerrar la ventana para salir.
 
-Dependencias PC: opencv-python
-  pip install opencv-python
+Dependencias PC: opencv-python (cualquier build — solo se usa para imdecode),
+                 matplotlib, numpy
+  uv run python3 debug_view.py   # dentro del directorio con pyproject.toml
 """
 
 import struct
@@ -37,14 +38,34 @@ def main():
         import cv2
         import numpy as np
     except ImportError:
-        print("[ERROR] OpenCV no encontrado. Instalar con: pip install opencv-python")
+        print("[ERROR] opencv-python/numpy no encontrado. Instalar con: uv sync --dev")
+        sys.exit(1)
+
+    try:
+        import matplotlib
+        # Intentar QtAgg (PyQt6) primero, TkAgg como fallback, Agg sin display
+        for backend in ("QtAgg", "TkAgg", "Agg"):
+            try:
+                matplotlib.use(backend)
+                break
+            except Exception:
+                continue
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("[ERROR] matplotlib no encontrado. Instalar con: uv sync --dev")
         sys.exit(1)
 
     stdin = sys.stdin.buffer
-    window = "Olympus Vision Debug (q para salir)"
     frame_count = 0
 
-    print("[debug_view] Esperando frames... (Ctrl+C o 'q' para salir)")
+    plt.ion()
+    fig, ax = plt.subplots(figsize=(8, 6))
+    if fig.canvas.manager is not None:
+        fig.canvas.manager.set_window_title("Olympus Vision Debug (cierra ventana para salir)")
+    ax.axis("off")
+    img_handle = None
+
+    print("[debug_view] Esperando frames... (cierra ventana para salir)")
 
     while True:
         # Leer cabecera de 4 bytes
@@ -64,32 +85,32 @@ def main():
             print("[debug_view] Stream cortado leyendo frame, EOF.")
             break
 
-        # Decodificar y mostrar
-        frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-        if frame is None:
+        # Decodificar BGR → RGB para matplotlib
+        frame_bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if frame_bgr is None:
             print(f"[debug_view] frame={frame_count} — fallo al decodificar JPEG, saltando.")
             frame_count += 1
             continue
 
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         frame_count += 1
-        try:
-            cv2.imshow(window, frame)
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord("q"):
-                print("[debug_view] Saliendo por tecla 'q'.")
-                break
-            if cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) < 1:
-                print("[debug_view] Ventana cerrada.")
-                break
-        except cv2.error as e:
-            print(f"[debug_view] Sin soporte de display: {e}")
-            print("[debug_view] Instalar opencv-python (no headless): pip install opencv-python")
+
+        # Mostrar o actualizar frame en la misma ventana
+        if img_handle is None:
+            img_handle = ax.imshow(frame_rgb)
+        else:
+            img_handle.set_data(frame_rgb)
+
+        ax.set_title(f"frame {frame_count}", fontsize=9)
+        fig.canvas.draw_idle()
+        fig.canvas.flush_events()
+
+        # Salir si la ventana fue cerrada
+        if not plt.fignum_exists(fig.number):
+            print("[debug_view] Ventana cerrada.")
             break
 
-    try:
-        cv2.destroyAllWindows()
-    except cv2.error:
-        pass
+    plt.close("all")
     print(f"[debug_view] Total frames recibidos: {frame_count}")
 
 

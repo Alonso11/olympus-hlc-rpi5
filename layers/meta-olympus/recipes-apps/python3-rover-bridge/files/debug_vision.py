@@ -33,8 +33,8 @@ SEG_CONF_MIN     = 0.50
 SEG_AREA_MIN     = 0.03
 SEG_ZONE_MIN     = 0.05
 
-BBOX_MODEL_DEFAULT = "/opt/olympus/yolov8n.onnx"
-SEG_MODEL_DEFAULT  = "/opt/olympus/yolov8n-seg.onnx"
+BBOX_MODEL_DEFAULT = "/usr/share/olympus/models/yolov8n.onnx"
+SEG_MODEL_DEFAULT  = "/usr/share/olympus/models/yolov8n-seg.onnx"
 
 # ── Colores BGR ───────────────────────────────────────────────────────────────
 
