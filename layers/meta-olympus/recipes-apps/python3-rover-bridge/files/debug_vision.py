@@ -37,6 +37,22 @@ SEG_ZONE_MIN     = 0.05
 BBOX_MODEL_DEFAULT = "/usr/share/olympus/models/yolov8n.onnx"
 SEG_MODEL_DEFAULT  = "/usr/share/olympus/models/yolov8n-seg.onnx"
 
+# ── Clases COCO (80) ─────────────────────────────────────────────────────────
+
+COCO_CLASSES = [
+    "person","bicycle","car","motorcycle","airplane","bus","train","truck","boat",
+    "traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat",
+    "dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack",
+    "umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball",
+    "kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket",
+    "bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple",
+    "sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair",
+    "couch","potted plant","bed","dining table","toilet","tv","laptop","mouse",
+    "remote","keyboard","cell phone","microwave","oven","toaster","sink",
+    "refrigerator","book","clock","vase","scissors","teddy bear","hair drier",
+    "toothbrush",
+]
+
 # ── Colores BGR ───────────────────────────────────────────────────────────────
 
 COLOR_GREEN  = (0, 200, 0)
@@ -165,10 +181,11 @@ def run_bbox(cv2, np, net, frame):
     output = net.forward()          # (1, 84, 8400)
     preds  = output[0].T            # (8400, 84)
 
-    best_area = 0.0
-    best_box  = None
-    best_cx   = None
-    best_conf = 0.0
+    best_area     = 0.0
+    best_box      = None
+    best_cx       = None
+    best_conf     = 0.0
+    best_class_id = 0
 
     for pred in preds:
         scores     = pred[4:]
@@ -183,9 +200,10 @@ def run_bbox(cv2, np, net, frame):
             continue
 
         if area_frac > best_area:
-            best_area = area_frac
-            best_conf = confidence
-            best_cx   = cx_n / 640.0
+            best_area     = area_frac
+            best_conf     = confidence
+            best_class_id = class_id
+            best_cx       = cx_n / 640.0
             x1 = max(0, int((cx_n - w_n / 2) * W / 640))
             y1 = max(0, int((cy_n - h_n / 2) * H / 640))
             x2 = min(W, int((cx_n + w_n / 2) * W / 640))
@@ -197,7 +215,8 @@ def run_bbox(cv2, np, net, frame):
         cv2.rectangle(frame, (x1, y1), (x2, y2), COLOR_GREEN, 2)
         cx_px = int(best_cx * W)
         cv2.line(frame, (cx_px, y1), (cx_px, y2), COLOR_YELLOW, 1)
-        cv2.putText(frame, f"{best_conf:.2f}", (x1, max(y1 - 4, 10)),
+        label = COCO_CLASSES[best_class_id] if best_class_id < len(COCO_CLASSES) else str(best_class_id)
+        cv2.putText(frame, f"{label} {best_conf:.2f}", (x1, max(y1 - 4, 10)),
                     FONT, FONT_SCALE, COLOR_GREEN, FONT_THICK)
 
     if best_cx is None:
@@ -215,13 +234,18 @@ def run_bbox(cv2, np, net, frame):
 # ── Modo segmentation ─────────────────────────────────────────────────────────
 
 def decode_masks(np, cv2, output0, output1, H, W):
+    """Retorna (masks, best_class_id) donde best_class_id es la clase de mayor confianza."""
     B, C, K, P = 4, 80, 32, 160
     preds  = output0[0].T    # (8400, 116)
     protos = output1[0]      # (32, 160, 160)
-    masks  = []
+    masks        = []
+    best_conf    = 0.0
+    best_class   = 0
 
     for pred in preds:
-        confidence = float(pred[B: B + C].max())
+        class_scores = pred[B: B + C]
+        class_id     = int(np.argmax(class_scores))
+        confidence   = float(class_scores[class_id])
         if confidence < SEG_CONF_MIN:
             continue
 
@@ -252,8 +276,11 @@ def decode_masks(np, cv2, output0, output1, H, W):
             continue
 
         masks.append(binary)
+        if confidence > best_conf:
+            best_conf  = confidence
+            best_class = class_id
 
-    return masks
+    return masks, best_class
 
 
 def run_seg(cv2, np, net, frame):
@@ -264,7 +291,7 @@ def run_seg(cv2, np, net, frame):
     outputs          = net.forward(net.getUnconnectedOutLayersNames())
     output0, output1 = outputs[0], outputs[1]
 
-    masks = decode_masks(np, cv2, output0, output1, H, W)
+    masks, best_class = decode_masks(np, cv2, output0, output1, H, W)
 
     lx     = int(ZONE_LEFT_END    * W)
     rx     = int(ZONE_RIGHT_START * W)
@@ -282,6 +309,11 @@ def run_seg(cv2, np, net, frame):
     # Línea ROI
     cv2.line(frame, (0, roi_y), (W, roi_y), COLOR_ROI, 1)
     cv2.putText(frame, "ROI", (4, roi_y - 4), FONT, 0.45, COLOR_ROI, 1)
+
+    # Label COCO de la detección dominante
+    if masks:
+        coco_label = COCO_CLASSES[best_class] if best_class < len(COCO_CLASSES) else str(best_class)
+        cv2.putText(frame, coco_label, (W - 140, 14), FONT, 0.55, COLOR_YELLOW, 1)
 
     # Calcular coberturas y decidir comando
     if masks:
