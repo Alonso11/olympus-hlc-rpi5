@@ -76,7 +76,7 @@ def capture_frame(cv2, np, width, height):
 
 # ── Captura: modo vid (generador MJPEG continuo) ──────────────────────────────
 
-def mjpeg_frames(cv2, np, width, height, fps):
+def mjpeg_frames(cv2, np, width, height, fps, drop=False):
     """
     Genera ndarray BGR frames leyendo el stream MJPEG de rpicam-vid.
     rpicam-vid escribe JPEG raw (boundaries SOI=\\xff\\xd8, EOI=\\xff\\xd9).
@@ -109,6 +109,7 @@ def mjpeg_frames(cv2, np, width, height, fps):
             buf += chunk
 
             # Extraer todos los JPEG completos del buffer acumulado
+            latest = None
             while True:
                 start = buf.find(SOI)
                 if start == -1:
@@ -126,7 +127,13 @@ def mjpeg_frames(cv2, np, width, height, fps):
                     cv2.IMREAD_COLOR,
                 )
                 if frame is not None:
-                    yield frame
+                    if drop:
+                        latest = frame  # descartar anteriores, quedar con el más nuevo
+                    else:
+                        yield frame
+
+            if drop and latest is not None:
+                yield latest
     finally:
         proc.terminate()
         proc.wait()
@@ -325,6 +332,8 @@ def main():
                     help="Fuente de captura: still=rpicam-still (~1fps), vid=rpicam-vid MJPEG (default: still)")
     ap.add_argument("--fps",     type=int, default=5,
                     help="Framerate para --capture vid (default: 5)")
+    ap.add_argument("--drop",    action="store_true",
+                    help="Descartar frames intermedios acumulados (solo --capture vid)")
     ap.add_argument("--model",   default=None,
                     help="Ruta al modelo ONNX (default: según modo)")
     ap.add_argument("--frames",  type=int, default=0,
@@ -365,7 +374,7 @@ def main():
 
     if args.capture == "vid":
         print(f"[debug_vision] rpicam-vid MJPEG @ {args.fps}fps", file=sys.stderr)
-        for frame in mjpeg_frames(cv2, np, FRAME_WIDTH, FRAME_HEIGHT, args.fps):
+        for frame in mjpeg_frames(cv2, np, FRAME_WIDTH, FRAME_HEIGHT, args.fps, drop=args.drop):
             try:
                 cmd = infer(frame)
             except Exception as e:
