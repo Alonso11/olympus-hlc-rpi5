@@ -100,6 +100,7 @@ def mjpeg_frames(cv2, np, width, height, fps):
     SOI = b"\xff\xd8"
     EOI = b"\xff\xd9"
 
+    assert proc.stdout is not None
     try:
         while True:
             chunk = proc.stdout.read(65536)
@@ -357,7 +358,7 @@ def main():
 
     def error_frame(msg):
         f = np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
-        cv2.putText(f, msg, (40, FRAME_HEIGHT // 2), FONT, 0.8, COLOR_RED, 2)
+        cv2.putText(f, msg, (40, FRAME_HEIGHT // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.8, COLOR_RED, 2)
         return f
 
     count = 0
