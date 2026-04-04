@@ -7,10 +7,11 @@ anota el resultado y escribe a stdout:
   [4 bytes big-endian: longitud JPEG] [N bytes JPEG]
 
 Uso en el RPi5:
-  python3 debug_vision.py [--mode bbox|seg] [--model PATH] [--frames N]
+  python3 debug_vision.py [--mode bbox|seg] [--capture still|vid] [--model PATH] [--frames N]
 
 Uso desde el PC via SSH:
-  ssh pi@rpi5 "python3 /opt/olympus/debug_vision.py --mode seg" | python3 debug_view.py
+  ssh root@rpi5 "python3 /usr/bin/debug_vision.py --mode seg" | python3 debug_view.py
+  ssh root@rpi5 "python3 /usr/bin/debug_vision.py --mode seg --capture vid --fps 10" | python3 debug_view.py
 
 Dependencias RPi5: python3-opencv, python3-numpy (incluidos en imagen Yocto Olympus)
 """
@@ -50,7 +51,7 @@ FONT       = None   # cv2.FONT_HERSHEY_SIMPLEX — asignado tras import cv2
 FONT_SCALE = 0.55
 FONT_THICK = 1
 
-# ── Captura ───────────────────────────────────────────────────────────────────
+# ── Captura: modo still ───────────────────────────────────────────────────────
 
 def capture_frame(cv2, np, width, height):
     """Captura un JPEG via rpicam-still. Retorna ndarray BGR o None."""
@@ -72,6 +73,62 @@ def capture_frame(cv2, np, width, height):
         np.frombuffer(result.stdout, np.uint8),
         cv2.IMREAD_COLOR,
     )
+
+# ── Captura: modo vid (generador MJPEG continuo) ──────────────────────────────
+
+def mjpeg_frames(cv2, np, width, height, fps):
+    """
+    Genera ndarray BGR frames leyendo el stream MJPEG de rpicam-vid.
+    rpicam-vid escribe JPEG raw (boundaries SOI=\\xff\\xd8, EOI=\\xff\\xd9).
+    """
+    proc = subprocess.Popen(
+        [
+            "rpicam-vid",
+            "--codec",     "mjpeg",
+            "--output",    "-",
+            "--width",     str(width),
+            "--height",    str(height),
+            "--framerate", str(fps),
+            "--timeout",   "0",        # sin límite de tiempo
+            "--nopreview",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+
+    buf = b""
+    SOI = b"\xff\xd8"
+    EOI = b"\xff\xd9"
+
+    try:
+        while True:
+            chunk = proc.stdout.read(65536)
+            if not chunk:
+                break
+            buf += chunk
+
+            # Extraer todos los JPEG completos del buffer acumulado
+            while True:
+                start = buf.find(SOI)
+                if start == -1:
+                    buf = b""
+                    break
+                end = buf.find(EOI, start + 2)
+                if end == -1:
+                    buf = buf[start:]   # conservar desde SOI
+                    break
+                jpeg = buf[start: end + 2]
+                buf  = buf[end + 2:]
+
+                frame = cv2.imdecode(
+                    np.frombuffer(jpeg, np.uint8),
+                    cv2.IMREAD_COLOR,
+                )
+                if frame is not None:
+                    yield frame
+    finally:
+        proc.terminate()
+        proc.wait()
 
 # ── Anotación común: líneas de zona ──────────────────────────────────────────
 
@@ -261,11 +318,15 @@ def main():
     global FONT
 
     ap = argparse.ArgumentParser(description="Debug vision stream via SSH pipe")
-    ap.add_argument("--mode",   default="bbox", choices=["bbox", "seg"],
+    ap.add_argument("--mode",    default="bbox", choices=["bbox", "seg"],
                     help="Modo de inferencia (default: bbox)")
-    ap.add_argument("--model",  default=None,
+    ap.add_argument("--capture", default="still", choices=["still", "vid"],
+                    help="Fuente de captura: still=rpicam-still (~1fps), vid=rpicam-vid MJPEG (default: still)")
+    ap.add_argument("--fps",     type=int, default=5,
+                    help="Framerate para --capture vid (default: 5)")
+    ap.add_argument("--model",   default=None,
                     help="Ruta al modelo ONNX (default: según modo)")
-    ap.add_argument("--frames", type=int, default=0,
+    ap.add_argument("--frames",  type=int, default=0,
                     help="Número de frames (0 = infinito, default: 0)")
     args = ap.parse_args()
 
@@ -285,35 +346,52 @@ def main():
         print(f"[ERROR] Modelo no encontrado: {model_path}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"[debug_vision] mode={args.mode} model={model_path}", file=sys.stderr)
+    print(f"[debug_vision] mode={args.mode} capture={args.capture} model={model_path}", file=sys.stderr)
     net = cv2.dnn.readNetFromONNX(model_path)
     print(f"[debug_vision] Modelo cargado ({len(net.getLayerNames())} capas)", file=sys.stderr)
 
+    def infer(frame):
+        if args.mode == "seg":
+            return run_seg(cv2, np, net, frame)
+        return run_bbox(cv2, np, net, frame)
+
+    def error_frame(msg):
+        f = np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
+        cv2.putText(f, msg, (40, FRAME_HEIGHT // 2), FONT, 0.8, COLOR_RED, 2)
+        return f
+
     count = 0
-    while args.frames == 0 or count < args.frames:
-        frame = capture_frame(cv2, np, FRAME_WIDTH, FRAME_HEIGHT)
-        if frame is None:
-            # Frame negro con mensaje de error
-            frame = np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
-            cv2.putText(frame, "CAPTURE FAILED", (80, FRAME_HEIGHT // 2),
-                        FONT, 1.0, COLOR_RED, 2)
+
+    if args.capture == "vid":
+        print(f"[debug_vision] rpicam-vid MJPEG @ {args.fps}fps", file=sys.stderr)
+        for frame in mjpeg_frames(cv2, np, FRAME_WIDTH, FRAME_HEIGHT, args.fps):
+            try:
+                cmd = infer(frame)
+            except Exception as e:
+                frame = error_frame(f"INFER ERR: {e}")
+                cmd = "ERR"
+            print(f"[debug_vision] frame={count} cmd={cmd}", file=sys.stderr)
             write_frame(cv2, frame)
             count += 1
-            continue
+            if args.frames and count >= args.frames:
+                break
 
-        try:
-            if args.mode == "seg":
-                cmd = run_seg(cv2, np, net, frame)
-            else:
-                cmd = run_bbox(cv2, np, net, frame)
-        except Exception as e:
-            cv2.putText(frame, f"INFER ERR: {e}", (4, FRAME_HEIGHT // 2),
-                        FONT, 0.5, COLOR_RED, 1)
-            cmd = "ERR"
-
-        print(f"[debug_vision] frame={count} cmd={cmd}", file=sys.stderr)
-        write_frame(cv2, frame)
-        count += 1
+    else:  # still
+        while args.frames == 0 or count < args.frames:
+            frame = capture_frame(cv2, np, FRAME_WIDTH, FRAME_HEIGHT)
+            if frame is None:
+                frame = error_frame("CAPTURE FAILED")
+                write_frame(cv2, frame)
+                count += 1
+                continue
+            try:
+                cmd = infer(frame)
+            except Exception as e:
+                frame = error_frame(f"INFER ERR: {e}")
+                cmd = "ERR"
+            print(f"[debug_vision] frame={count} cmd={cmd}", file=sys.stderr)
+            write_frame(cv2, frame)
+            count += 1
 
 
 if __name__ == "__main__":
