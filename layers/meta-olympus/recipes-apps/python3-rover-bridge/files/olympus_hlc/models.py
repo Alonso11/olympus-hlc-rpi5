@@ -27,6 +27,9 @@ class TlmFrame:
     dist_mm:    int    # distancia ToF en mm (0 = sin lectura)
     enc_left:   int    # acumulador pulsos encoder izquierdo (FL+CL+RL)
     enc_right:  int    # acumulador pulsos encoder derecho  (FR+CR+RR)
+    x_mm:       int    # Posición X (EKF)
+    y_mm:       int    # Posición Y (EKF)
+    theta_mrad: int    # Orientación milirrad (EKF)
 
     @staticmethod
     def parse(raw: str) -> "TlmFrame | None":
@@ -39,7 +42,7 @@ class TlmFrame:
         """
         try:
             parts = raw.split(":")
-            if len(parts) != 22 or parts[0] != "TLM":
+            if len(parts) < 22 or parts[0] != "TLM":
                 return None
 
             safety     = parts[1]
@@ -60,6 +63,8 @@ class TlmFrame:
                 batt_mv=batt_mv, batt_ma=batt_ma, currents=currents,
                 temp_c=temp_c, batt_temps=batt_temps, dist_mm=dist_mm,
                 enc_left=enc_left, enc_right=enc_right,
+                x_mm=int(parts[22]), y_mm=int(parts[23]),
+                theta_mrad=int(parts[24]),
             )
         except (ValueError, IndexError):
             return None
