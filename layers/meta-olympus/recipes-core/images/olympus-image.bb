@@ -6,6 +6,8 @@ inherit core-image
 
 # Añadir soporte para WiFi, UART, SSH, Redimensionamiento, Sensores y Vision
 IMAGE_INSTALL:append = " \
+    libcsp \
+    libcsp-dev \
     custom-udev-rules \
     resize-rootfs \
     wifi-config \
