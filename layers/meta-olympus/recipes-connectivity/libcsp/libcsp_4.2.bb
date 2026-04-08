@@ -1,6 +1,6 @@
 SUMMARY = "CubeSat Space Protocol library"
 LICENSE = "LGPL-2.1-only"
-LIC_FILES_CHKSUM = "file://COPYING;md5=4fbd65380cdd255951079008b364516c"
+LIC_FILES_CHKSUM = "file://LICENSE;md5=e38286c6cb20ecbf85b80bb4af68efdc"
 
 SRC_URI = "git://github.com/libcsp/libcsp.git;protocol=https;branch=develop"
 SRCREV = "51628cd7a208edff81eff9b2b6fadc70dea5c5a4"
@@ -24,6 +24,9 @@ EXTRA_OECMAKE = " \
     -DCSP_BUFFER_SIZE=256 \
 "
 
+SOLIBS = ".so"
+FILES_SOLIBSDEV = ""
+
 FILES:${PN} += " \
     ${libdir}/libcsp.so* \
     ${libdir}/python3*/site-packages/csp* \
@@ -39,4 +42,4 @@ RDEPENDS:${PN} = " \
     python3-ctypes \
 "
 
-INSANE_SKIP:${PN} = "dev-so"
+INSANE_SKIP:${PN}-dev = "dev-elf"
