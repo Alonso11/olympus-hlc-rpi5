@@ -2,8 +2,8 @@ SUMMARY = "CubeSat Space Protocol library"
 LICENSE = "LGPL-2.1-only"
 LIC_FILES_CHKSUM = "file://COPYING;md5=4fbd65380cdd255951079008b364516c"
 
-SRC_URI = "git://github.com/libcsp/libcsp.git;protocol=https;branch=master"
-SRCREV = "${AUTOREV}"
+SRC_URI = "git://github.com/libcsp/libcsp.git;protocol=https;branch=main"
+SRCREV = "51628cd7a208edff81eff9b2b6fadc70dea5c5a4"
 
 S = "${WORKDIR}/git"
 
