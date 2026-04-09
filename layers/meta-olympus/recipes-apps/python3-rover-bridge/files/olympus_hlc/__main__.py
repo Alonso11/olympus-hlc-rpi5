@@ -18,6 +18,7 @@ from .msm import DryRunRover
 from .sources.gcs import GCSSource
 from .sources.manual import ManualSource
 from .sources.vision import VisionSource
+from .sources.gcs_libcsp import LibcspGCSSource
 
 
 def main() -> None:
@@ -53,6 +54,13 @@ def main() -> None:
         help="Skip Arduino connection; simulate responses (testing without hardware)",
     )
     parser.add_argument(
+        "--use-libcsp",
+        action="store_true",
+        help="Use native libcsp socket API instead of raw UDP+CSPPacket (requires "
+             "libcsp Python bindings in site-packages). Enables real CSP routing "
+             "for future UHF interface integration.",
+    )
+    parser.add_argument(
         "--log-path",
         default=OlympusLogger.DEFAULT_LOG_PATH,
         help=f"Path for the HLC log file (default: {OlympusLogger.DEFAULT_LOG_PATH})",
@@ -79,7 +87,10 @@ def main() -> None:
     if args.mode == "manual":
         source = ManualSource()
     elif args.mode == "gcs":
-        source = GCSSource()
+        if args.use_libcsp:
+            source = LibcspGCSSource()
+        else:
+            source = GCSSource()
     else:
         source = VisionSource(args.model)
 
