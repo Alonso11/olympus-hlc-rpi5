@@ -89,6 +89,10 @@ class RoverState(enum.Enum):
     AVOID   = "AVD"
     RETREAT = "RET"
     FAULT   = "FLT"
+    # Safe Mode: iniciado por HLC ante batería/temperatura crítica (SYS-FUN-040).
+    # El LLC bloquea todos los comandos de movimiento hasta RST explícito.
+    # Diferencia con FAULT: SAFE es energético/térmico, no un fallo hardware del LLC.
+    SAFE    = "SFE"
 
     @staticmethod
     def from_ack(label: str) -> "RoverState | None":

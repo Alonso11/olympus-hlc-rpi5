@@ -224,8 +224,14 @@ class HlcEngine:
                     f"SAFE MODE activado — {self._safe_mode.reason} "
                     f"(SYS-FUN-040) — solo STB/PING permitidos"
                 )
+                self._slip.reset()
+                # Primera activación: notificar al LLC via Command::Safe (ICD-LLC-001).
+                # El LLC entra en RoverState::Safe y bloquea todo movimiento hasta RST.
+                # En ciclos posteriores (just_activated=False), solo el keepalive PING
+                # del engine loop llega al LLC — sin comandos adicionales.
+                return "SAFE"
             self._slip.reset()
-            return "STB"
+            return None  # Safe Mode ya activo: engine solo envía PING keepalive
 
         if self._tracker.should_retreat(tlm):
             wp = self._tracker.last_safe()

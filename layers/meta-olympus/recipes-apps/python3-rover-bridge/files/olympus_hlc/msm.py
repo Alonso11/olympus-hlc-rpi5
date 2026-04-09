@@ -30,8 +30,8 @@ class RoverMSM:
         return time.monotonic() - self._entered
 
     def blocks_command(self, cmd: str) -> bool:
-        """En FAULT solo RST y PING son válidos (ICD LLC §Tabla de estados)."""
-        if self._state == RoverState.FAULT:
+        """En FAULT o SAFE solo RST y PING son válidos (ICD LLC §Tabla de estados)."""
+        if self._state in (RoverState.FAULT, RoverState.SAFE):
             return cmd not in ("RST", "PING")
         return False
 
@@ -42,7 +42,7 @@ class DryRunRover:
     """Simula respuestas del Arduino siguiendo el protocolo MSM."""
 
     _CMD_TO_STATE = {
-        "STB": "STB", "RET": "RET", "FLT": "FLT",
+        "STB": "STB", "RET": "RET", "FLT": "FLT", "SAFE": "SFE",
         "RST": "STB", "AVD:L": "AVD", "AVD:R": "AVD",
     }
 
