@@ -13,7 +13,7 @@ import enum
 class TlmFrame:
     """
     Frame de telemetría extendida emitido por el Arduino (~1 s).
-    Formato: TLM:<SAF>:<STALL>:<TS>ms:<MV>mV:<MA>mA:<I0>:<I1>:<I2>:<I3>:<I4>:<I5>:<T>C:<B0>:<B1>:<B2>:<B3>:<B4>:<B5>C:<DIST>mm:<EL>:<ER>
+    Formato: TLM:<SAF>:<STALL>:<TS>ms:<MV>mV:<MA>mA:<I0>:<I1>:<I2>:<I3>:<I4>:<I5>:<T>C:<B0>:<B1>:<B2>:<B3>:<B4>:<B5>C:<DIST>mm:<EL>:<ER>:<X>:<Y>:<TH>
     (Ref. ICD LLC §Frame de telemetría extendida, SyRS-030)
     """
     safety:     str    # "NORMAL" | "WARN" | "LIMIT" | "FAULT"
@@ -38,7 +38,7 @@ class TlmFrame:
         Retorna TlmFrame o None si el formato no es válido.
 
         Ejemplo:
-          TLM:NORMAL:000000:12340ms:11800mV:2350mA:200:210:195:205:180:190:24C:25:25:26:26:25:25C:450mm:60:62
+          TLM:NORMAL:000000:12340ms:11800mV:2350mA:200:210:195:205:180:190:24C:25:25:26:26:25:25C:450mm:60:62:120:-45:31
         """
         try:
             parts = raw.split(":")

@@ -49,7 +49,7 @@ class DryRunRover:
     _TLM_INTERVAL_S = 1.0
     _TLM_TEMPLATE   = (
         "TLM:NORMAL:000000:{tick}ms:16000mV:500mA:"
-        "100:100:100:100:100:100:25C:25:25:25:25:25:25C:1000mm:0:0"
+        "100:100:100:100:100:100:25C:25:25:25:25:25:25C:1000mm:0:0:0:0:0"
     )
 
     def __init__(self):
