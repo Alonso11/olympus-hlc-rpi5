@@ -24,7 +24,7 @@ inherit cargo python3native python3-dir pkgconfig
 
 # Dependencias para compilar la extensión nativa (necesita udev para serialport)
 DEPENDS += "python3 python3-setuptools-native udev"
-RDEPENDS:${PN} += "python3-core python3-pyserial python3-pyyaml udev"
+RDEPENDS:${PN} += "python3-core python3-pyserial python3-pyyaml udev libcsp custom-udev-rules"
 
 # Configuración para usar las fuentes vendoreadas incluidas en el repo
 do_configure:prepend() {
