@@ -7,7 +7,7 @@ from ..config import (
     ZONE_LEFT_END, ZONE_RIGHT_START,
     EXP_SPEED_L, EXP_SPEED_R,
     VISION_MODE, SEG_MODEL_PATH,
-    SEG_CONF_MIN, SEG_AREA_MIN, SEG_ZONE_MIN, SEG_ROI_TOP,
+    SEG_CONF_MIN, SEG_AREA_MIN, SEG_ZONE_MIN, SEG_ROI_TOP, SEG_MASK_THRESHOLD,
 )
 
 
@@ -184,7 +184,7 @@ class VisionSource(CommandSource):
             x2 = min(frame_w, int((cx_n + w_n / 2) * frame_w / 640))
             y2 = min(frame_h, int((cy_n + h_n / 2) * frame_h / 640))
 
-            binary = (mask_full > 0.5)
+            binary = (mask_full > SEG_MASK_THRESHOLD)
             binary[:y1, :]  = False
             binary[y2:, :]  = False
             binary[:, :x1]  = False

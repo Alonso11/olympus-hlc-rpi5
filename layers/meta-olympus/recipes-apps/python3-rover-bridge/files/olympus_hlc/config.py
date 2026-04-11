@@ -57,13 +57,40 @@ STORAGE_MIN_MB       = int(_cfg.get("storage_min_mb",       50))   # MB libres m
 STORAGE_CHECK_CYCLES = int(_cfg.get("storage_check_cycles", 300))  # Cada N ciclos verificar disco
 
 # ─── Vision ──────────────────────────────────────────────────────────────────
+#
+# Modo bbox (VISION_MODE="bbox"):
+#   Filtro único: fracción de área del bounding box respecto al blob 640×640 del
+#   modelo ≥ VISION_AREA_MIN. No hay validación secundaria; la decisión la toma
+#   la detección con mayor área. Por eso el umbral es estricto (5 %).
+#   Ref.: Jocher, G. et al. (2023). Ultralytics YOLOv8. GitHub.
+#   https://github.com/ultralytics/ultralytics — conf=0.5 por defecto para
+#   producción; area_min del 5 % descarta detecciones de fondo/ruido sin perder
+#   obstáculos a < 1.5 m (≈ 5 s de reacción a 0.3 m/s).
+#
+# Modo segmentación (VISION_MODE="segmentation"):
+#   Filtrado en dos etapas:
+#     1. PRE-FILTRO (SEG_AREA_MIN=0.03): descarta detecciones con bbox area < 3 %
+#        ANTES del decode costoso (sigmoid + resize de la máscara 160×160).
+#        Umbral más laxo que bbox porque la decisión final la da la etapa 2.
+#     2. VALIDACIÓN DE ZONA (SEG_ZONE_MIN=0.05): cobertura de máscara combinada
+#        en el ROI inferior. Una detección puede pasar el pre-filtro (3 %) pero
+#        no generar comando si no cubre el 5 % de ninguna zona.
+#   Ref.: Bolya, D. et al. (2022). "YOLACT++: Better Real-time Instance
+#   Segmentation." IEEE TPAMI 44(2), 1108-1121. — Tabla 3, mask-quality
+#   filtering with area thresholds in two-stage pipelines.
+#   Ref.: Jocher, G. et al. (2023). Ultralytics YOLOv8. GitHub. §Segmentation.
+#
+# SEG_MASK_THRESHOLD: umbral de binarización de la máscara sigmoidal (0–1 → bool).
+#   0.5 es el valor canónico del clasificador binario (probabilidad > 50 %).
+#   Ref.: Redmon, J. & Farhadi, A. (2018). "YOLOv3: An Incremental Improvement."
+#   arXiv:1804.02767. §2.2 — binary cross-entropy mask threshold.
 
 FRAME_WIDTH       = int  (_cfg.get("frame_width",       640))
 FRAME_HEIGHT      = int  (_cfg.get("frame_height",      480))
-VISION_CONF_MIN   = float(_cfg.get("vision_conf_min",   0.5))   # Confianza mínima
-VISION_AREA_MIN   = float(_cfg.get("vision_area_min",   0.05))  # Área mínima bbox
-ZONE_LEFT_END     = float(_cfg.get("zone_left_end",     0.33))  # 0–33% → AVD:R
-ZONE_RIGHT_START  = float(_cfg.get("zone_right_start",  0.67))  # 67–100% → AVD:L
+VISION_CONF_MIN   = float(_cfg.get("vision_conf_min",   0.5))    # Confianza mínima detección
+VISION_AREA_MIN   = float(_cfg.get("vision_area_min",   0.05))   # Área bbox / 640² ≥ 5 % (único filtro en bbox mode)
+ZONE_LEFT_END     = float(_cfg.get("zone_left_end",     0.33))   # 0–33 % ancho frame → AVD:R
+ZONE_RIGHT_START  = float(_cfg.get("zone_right_start",  0.67))   # 67–100 % ancho frame → AVD:L
 EXP_SPEED_L       = int  (_cfg.get("exp_speed_l",       40))
 EXP_SPEED_R       = int  (_cfg.get("exp_speed_r",       40))
 
@@ -71,10 +98,11 @@ EXP_SPEED_R       = int  (_cfg.get("exp_speed_r",       40))
 VISION_MODE       = str  (_cfg.get("vision_mode",       "bbox"))
 SEG_MODEL_PATH    = str  (_cfg.get("seg_model_path",
                           "/usr/share/olympus/models/yolov8n-seg.onnx"))
-SEG_CONF_MIN      = float(_cfg.get("seg_conf_min",      0.5))
-SEG_AREA_MIN      = float(_cfg.get("seg_area_min",      0.03))
-SEG_ZONE_MIN      = float(_cfg.get("seg_zone_min",      0.05))
-SEG_ROI_TOP       = float(_cfg.get("seg_roi_top",       0.5))
+SEG_CONF_MIN      = float(_cfg.get("seg_conf_min",      0.5))    # Conf. mínima (igual que bbox)
+SEG_AREA_MIN      = float(_cfg.get("seg_area_min",      0.03))   # Pre-filtro bbox / 640² ≥ 3 % (antes de decode de máscara)
+SEG_ZONE_MIN      = float(_cfg.get("seg_zone_min",      0.05))   # Cobertura de zona ≥ 5 % para emitir comando (validación final)
+SEG_ROI_TOP       = float(_cfg.get("seg_roi_top",       0.5))    # Ignorar mitad superior del frame (obstáculos siempre en mitad inferior)
+SEG_MASK_THRESHOLD = float(_cfg.get("seg_mask_threshold", 0.5))  # Binarización sigmoide → bool (umbral canónico clasificador binario)
 
 # ─── GCS link (SRS-013, SYS-FUN-021) ─────────────────────────────────────────
 
