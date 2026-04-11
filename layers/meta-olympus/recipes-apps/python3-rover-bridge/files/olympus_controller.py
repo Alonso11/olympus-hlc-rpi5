@@ -126,7 +126,10 @@ SEG_MODEL_PATH    = str  (_cfg.get("seg_model_path",
 SEG_CONF_MIN      = float(_cfg.get("seg_conf_min",       0.5))  # Min detection confidence
 SEG_AREA_MIN      = float(_cfg.get("seg_area_min",       0.03)) # Min mask area as frame fraction
 SEG_ZONE_MIN      = float(_cfg.get("seg_zone_min",       0.05)) # Min zone coverage to trigger command
-SEG_ROI_TOP       = float(_cfg.get("seg_roi_top",        0.5))  # Ignore frame above this fraction (0=full,0.5=bottom half)
+SEG_ROI_TOP        = float(_cfg.get("seg_roi_top",        0.5))   # Ignorar fracción superior del frame (obstáculos en mitad inferior)
+SEG_MASK_THRESHOLD = float(_cfg.get("seg_mask_threshold", 0.5))  # Binarización sigmoide → bool (umbral canónico clasificador binario)
+# Ref.: Redmon, J. & Farhadi, A. (2018). "YOLOv3: An Incremental Improvement."
+# arXiv:1804.02767. §2.2 — binary cross-entropy mask threshold.
 
 # ─── Telemetry Frame ─────────────────────────────────────────────────────────
 
@@ -134,18 +137,32 @@ SEG_ROI_TOP       = float(_cfg.get("seg_roi_top",        0.5))  # Ignore frame a
 class TlmFrame:
     """
     Frame de telemetría extendida emitido por el Arduino (~1 s).
-    Formato: TLM:<SAF>:<STALL>:<TS>ms:<MV>mV:<MA>mA:<I0>:<I1>:<I2>:<I3>:<I4>:<I5>:<T>C:<B0>:<B1>:<B2>:<B3>:<B4>:<B5>C:<DIST>mm
+
+    ICD v1.0 (20 campos):
+      TLM:<SAF>:<STALL>:<TS>ms:<MV>mV:<MA>mA:<I0>..<I5>:<T>C:<B0>..<B4>:<B5>C:<DIST>mm
+
+    ICD v1.1 (22 campos, firmware ≥ feature/msm-main-integration):
+      …:<EL>:<ER>
+
+    ICD v1.2 (25 campos, con EKF):
+      …:<EL>:<ER>:<X_mm>:<Y_mm>:<Theta_mrad>
+
     (Ref. ICD LLC §Frame de telemetría extendida, SyRS-030)
     """
-    safety:     str        # "NORMAL" | "WARN" | "LIMIT" | "FAULT"
-    stall_mask: int        # 6 bits: bit5=FR … bit0=RL
-    tick_ms:    int        # ms desde boot del Arduino (contador monotónico)
-    batt_mv:    int        # tensión batería en mV  (0 = sin lectura)
-    batt_ma:    int        # corriente batería en mA con signo (0 = sin lectura)
-    currents:   list       # [FR, FL, CR, CL, RR, RL] mA
-    temp_c:     int        # temperatura ambiente °C
-    batt_temps: list       # [B1a, B1b, B2a, B2b, B3a, B3b] °C
-    dist_mm:    int        # distancia ToF en mm (0 = sin lectura)
+    safety:     str    # "NORMAL" | "WARN" | "LIMIT" | "FAULT"
+    stall_mask: int    # 6 bits: bit5=FR … bit0=RL
+    tick_ms:    int    # ms desde boot del Arduino (contador monotónico)
+    batt_mv:    int    # tensión batería en mV  (0 = sin lectura)
+    batt_ma:    int    # corriente batería en mA con signo (0 = sin lectura)
+    currents:   list   # [FR, FL, CR, CL, RR, RL] mA
+    temp_c:     int    # temperatura ambiente °C
+    batt_temps: list   # [B1a, B1b, B2a, B2b, B3a, B3b] °C
+    dist_mm:    int    # distancia ToF en mm (0 = sin lectura)
+    enc_left:   int    # acumulador pulsos encoder izquierdo FL+CL+RL (ICD v1.1+)
+    enc_right:  int    # acumulador pulsos encoder derecho  FR+CR+RR  (ICD v1.1+)
+    x_mm:       int    # Posición X EKF mm (ICD v1.2+; 0 si ausente)
+    y_mm:       int    # Posición Y EKF mm (ICD v1.2+; 0 si ausente)
+    theta_mrad: int    # Orientación milirrad EKF (ICD v1.2+; 0 si ausente)
 
     @staticmethod
     def parse(raw: str):
@@ -153,19 +170,23 @@ class TlmFrame:
         Parsea un frame TLM crudo (sin el \\n final).
         Retorna TlmFrame o None si el formato no es válido.
 
-        Ejemplo:
-          TLM:NORMAL:000000:12340ms:11800mV:2350mA:200:210:195:205:180:190:24C:25:25:26:26:25:25C:450mm
+        Compatible con ICD v1.0 (20 campos), v1.1 (22), v1.2 (25).
+        Los campos de encoder (v1.1) y EKF (v1.2) son opcionales — default 0.
+
+        Ejemplo v1.2:
+          TLM:NORMAL:000000:12340ms:11800mV:2350mA:200:210:195:205:180:190:24C:25:25:26:26:25:25C:450mm:60:62:120:-45:31
         """
         # Índices de los campos tras split(':'):
         # 0=TLM 1=SAF 2=STALL 3=TSms 4=MVmV 5=MAma
         # 6..11=I0-I5  12=TC  13..17=B0-B4  18=B5C  19=DISTmm
+        # 20=EL 21=ER  22=X_mm 23=Y_mm 24=Theta_mrad
         try:
             parts = raw.split(":")
-            if len(parts) != 20 or parts[0] != "TLM":
+            if len(parts) < 20 or parts[0] != "TLM":
                 return None
 
             safety     = parts[1]
-            stall_mask = int(parts[2], 2)          # "000101" → int
+            stall_mask = int(parts[2], 2)
             tick_ms    = int(parts[3].rstrip("ms"))
             batt_mv    = int(parts[4].rstrip("mV"))
             batt_ma    = int(parts[5].rstrip("mA"))
@@ -175,10 +196,21 @@ class TlmFrame:
                          [int(parts[18].rstrip("C"))]
             dist_mm    = int(parts[19].rstrip("mm"))
 
+            # ICD v1.1+ — encoder accumulators
+            enc_left   = int(parts[20]) if len(parts) > 20 else 0
+            enc_right  = int(parts[21]) if len(parts) > 21 else 0
+
+            # ICD v1.2+ — EKF pose (optional; 0 when absent)
+            x_mm       = int(parts[22]) if len(parts) > 22 else 0
+            y_mm       = int(parts[23]) if len(parts) > 23 else 0
+            theta_mrad = int(parts[24]) if len(parts) > 24 else 0
+
             return TlmFrame(
                 safety=safety, stall_mask=stall_mask, tick_ms=tick_ms,
                 batt_mv=batt_mv, batt_ma=batt_ma, currents=currents,
                 temp_c=temp_c, batt_temps=batt_temps, dist_mm=dist_mm,
+                enc_left=enc_left, enc_right=enc_right,
+                x_mm=x_mm, y_mm=y_mm, theta_mrad=theta_mrad,
             )
         except (ValueError, IndexError):
             return None
@@ -1052,7 +1084,7 @@ class VisionSource:
             x2 = min(frame_w, int((cx_n + w_n / 2) * frame_w / 640))
             y2 = min(frame_h, int((cy_n + h_n / 2) * frame_h / 640))
 
-            binary = (mask_full > 0.5)
+            binary = (mask_full > SEG_MASK_THRESHOLD)
             binary[:y1, :]  = False
             binary[y2:, :]  = False
             binary[:, :x1]  = False
