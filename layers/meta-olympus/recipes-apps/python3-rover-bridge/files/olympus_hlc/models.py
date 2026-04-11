@@ -58,13 +58,17 @@ class TlmFrame:
             enc_left   = int(parts[20])
             enc_right  = int(parts[21])
 
+            # EKF fields (x_mm, y_mm, theta_mrad) are optional — older firmware
+            # and test fixtures emit only 22 fields (ICD §Frame extendido ≥ v1.1).
+            x_mm       = int(parts[22]) if len(parts) > 22 else 0
+            y_mm       = int(parts[23]) if len(parts) > 23 else 0
+            theta_mrad = int(parts[24]) if len(parts) > 24 else 0
             return TlmFrame(
                 safety=safety, stall_mask=stall_mask, tick_ms=tick_ms,
                 batt_mv=batt_mv, batt_ma=batt_ma, currents=currents,
                 temp_c=temp_c, batt_temps=batt_temps, dist_mm=dist_mm,
                 enc_left=enc_left, enc_right=enc_right,
-                x_mm=int(parts[22]), y_mm=int(parts[23]),
-                theta_mrad=int(parts[24]),
+                x_mm=x_mm, y_mm=y_mm, theta_mrad=theta_mrad,
             )
         except (ValueError, IndexError):
             return None

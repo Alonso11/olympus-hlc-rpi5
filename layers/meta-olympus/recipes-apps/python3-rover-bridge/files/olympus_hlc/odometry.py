@@ -14,12 +14,22 @@
 
 import math
 
+from .config import TICKS_PER_REV, WHEEL_RADIUS_MM, WHEEL_BASE_MM
+
 
 class OdometryTracker:
     """
-    Mantiene la pose estimada del rover (x, y, theta) recibida del EKF del LLC
-    y provee las operaciones de comparación con ground truth necesarias para
-    verificar RF-004-R1 (error odométrico < 5 % en distancia total).
+    Mantiene la pose estimada del rover (x, y, theta).
+
+    Dos fuentes de actualización:
+      update(enc_left, enc_right)      — cinemática diferencial sobre los
+            acumuladores de encoder del TLM (FL+CL+RL y FR+CR+RR).
+            Primer frame solo establece referencia; los sucesivos integran delta.
+      update_from_ekf(x, y, theta)    — pose absoluta del EKF del LLC (ICD v1.1+).
+
+    Las operaciones de ground truth comparan segment_distance_mm() contra una
+    distancia física medida con cinta para verificar RF-004-R1 / RNF-003
+    (error odométrico < 5 % en distancia total).
     """
 
     def __init__(self) -> None:
@@ -28,14 +38,55 @@ class OdometryTracker:
         self.theta_rad: float = 0.0
 
         # Punto de inicio del segmento de validación actual
-        self._seg_x0: float = 0.0
-        self._seg_y0: float = 0.0
+        self._seg_x0:    float = 0.0
+        self._seg_y0:    float = 0.0
         self._seg_active: bool = False
 
-    # ── Actualización desde TLM ───────────────────────────────────────────────
+        # Encoder-based dead reckoning
+        # _mm_per_tick: circunferencia / (3 ruedas × ticks/vuelta).
+        # Factor 3 porque enc_left y enc_right son la suma de FL+CL+RL / FR+CR+RR.
+        self._last_enc_left:  float = float("nan")
+        self._last_enc_right: float = float("nan")
+        self._mm_per_tick:    float = (2.0 * math.pi * WHEEL_RADIUS_MM) / (3.0 * TICKS_PER_REV)
+        self._wheel_base:     float = float(WHEEL_BASE_MM)
+
+    # ── Actualización desde encoders (cinemática diferencial) ─────────────────
+
+    def update(self, enc_left: int, enc_right: int) -> None:
+        """
+        Integra la pose a partir de los acumuladores de encoder del TLM.
+
+        enc_left / enc_right: valores acumulados de pulsos izq/der
+        (sum de FL+CL+RL y FR+CR+RR respectivamente).
+
+        El primer frame tras init o reset solo establece la referencia —
+        la pose no cambia (sin delta previo que integrar).
+
+        Ref.: Borenstein, J. & Feng, L. (1996). "Measurement and correction of
+        systematic odometry errors in mobile robots." IEEE Trans. Robotics and
+        Automation, 12(6), 869-880. §II — differential-drive kinematics.
+        """
+        if math.isnan(self._last_enc_left):
+            self._last_enc_left  = float(enc_left)
+            self._last_enc_right = float(enc_right)
+            return
+
+        d_left  = (enc_left  - self._last_enc_left)  * self._mm_per_tick
+        d_right = (enc_right - self._last_enc_right) * self._mm_per_tick
+        self._last_enc_left  = float(enc_left)
+        self._last_enc_right = float(enc_right)
+
+        d      = (d_left + d_right) / 2.0
+        dtheta = (d_right - d_left) / self._wheel_base
+        heading = self.theta_rad + dtheta / 2.0
+        self.x_mm      += d * math.cos(heading)
+        self.y_mm      += d * math.sin(heading)
+        self.theta_rad += dtheta
+
+    # ── Actualización desde TLM (EKF absoluto) ────────────────────────────────
 
     def update_from_ekf(self, x_mm: int, y_mm: int, theta_mrad: int) -> None:
-        """Actualiza la pose directamente desde el frame TLM del LLC."""
+        """Actualiza la pose directamente desde el frame TLM del LLC (ICD v1.1+)."""
         self.x_mm      = float(x_mm)
         self.y_mm      = float(y_mm)
         self.theta_rad = float(theta_mrad) / 1000.0
@@ -49,7 +100,9 @@ class OdometryTracker:
         self.x_mm      = 0.0
         self.y_mm      = 0.0
         self.theta_rad = 0.0
-        self._seg_active = False
+        self._seg_active     = False
+        self._last_enc_left  = float("nan")
+        self._last_enc_right = float("nan")
 
     # ── Ground truth (RF-004-R1) ──────────────────────────────────────────────
 
