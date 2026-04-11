@@ -318,7 +318,31 @@ class SlipMonitor:
       - Cuando el contador alcanza slip_stall_frames → override RET.
       - Se reinicia cuando stall_mask == 0 o el rover sale de EXPLORE.
 
-    Prioridad en el loop: CRITICAL > retreat (dist) > slip > comando fuente.
+    Prioridad en el loop: SafeMode > retreat (dist) > slip > comando fuente.
+
+    # LIMITACIÓN ARQUITECTÓNICA — dead code bajo comportamiento LLC actual
+    #
+    # La transición stall→FAULT en el LLC es atómica: update_safety() establece
+    # safety=FaultStall y state=Fault en el mismo ciclo en que stall_mask != 0
+    # (rover-low-level-controller/src/state_machine/mod.rs, update_safety()).
+    # Por tanto, cualquier frame TLM con stall_mask != 0 también tendrá
+    # safety="FAULT", y safe_mode.update() (que verifica safety=="FAULT") se
+    # activa PRIMERO en la cadena de prioridad, llamando slip.reset() antes de
+    # que slip.update() pueda acumular el segundo frame.
+    #
+    # En la arquitectura actual, SlipMonitor._count nunca supera 0 en producción.
+    #
+    # Para activarlo se necesitaría uno de:
+    #   a) LLC emita un nivel intermedio "WARN:STALL" (soft stall) antes del FAULT,
+    #      con stall_mask != 0 pero safety todavía NORMAL/WARN. Requiere cambios
+    #      en state_machine/mod.rs.
+    #   b) Cambiar la prioridad y que SlipMonitor verifique safety != "FAULT" antes
+    #      de acumular (pero entonces RET se enviaría a un LLC en FAULT que
+    #      responderá ERR:ESTOP de todas formas).
+    #
+    # Actualmente la protección equivalente la provee SafeMode vía safety="FAULT".
+    # SlipMonitor se mantiene para uso futuro y como documentación del requisito
+    # RF-004 (slip detection).
     """
 
     def __init__(self, stall_frames: int = SLIP_STALL_FRAMES):

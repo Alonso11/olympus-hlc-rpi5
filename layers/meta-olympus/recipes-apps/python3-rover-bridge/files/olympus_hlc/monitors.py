@@ -106,6 +106,14 @@ class SlipMonitor:
 
     Solo actúa en EXPLORE. Acumula frames TLM consecutivos con stall_mask != 0.
     Cuando el contador alcanza slip_stall_frames → override RET.
+
+    LIMITACIÓN ARQUITECTÓNICA — ver olympus_controller.py SlipMonitor para
+    descripción completa. En resumen: la transición stall→FAULT del LLC es
+    atómica (state_machine/mod.rs update_safety()), por lo que cualquier frame
+    con stall_mask != 0 también lleva safety="FAULT". SafeMode se activa antes
+    en la cadena de prioridad y llama slip.reset(), impidiendo que el contador
+    llegue a slip_stall_frames. Actualmente es dead code; se mantiene para uso
+    futuro cuando el LLC implemente señalización gradual de stall (RF-004).
     """
 
     def __init__(self, stall_frames: int = SLIP_STALL_FRAMES):
