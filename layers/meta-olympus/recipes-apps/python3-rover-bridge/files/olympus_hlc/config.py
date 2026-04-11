@@ -45,11 +45,52 @@ MAX_WAYPOINTS     = int  (_cfg.get("max_waypoints",     5))     # Últimos N way
 SLIP_STALL_FRAMES = int  (_cfg.get("slip_stall_frames", 2))     # Frames consecutivos stall → RET (RF-004)
 
 # ─── Energy / Thermal ────────────────────────────────────────────────────────
+#
+# Batería: pack 4S Li-ion 18650 NMC (ej. Samsung INR18650-30Q, Panasonic NCR18650B).
+#
+# Curva SoC-V para celdas NMC 18650 a descarga 1C (aprox.):
+#   4.20 V/celda → 100 % SoC  (carga completa)
+#   3.80 V/celda →  60 % SoC
+#   3.60 V/celda →  30 % SoC  (voltaje nominal)
+#   3.50 V/celda →  20 % SoC  ← BATT_WARN  (tiempo para estacionar)
+#   3.20 V/celda →   5 % SoC  ← BATT_CRITICAL (daño inminente por subdescarga)
+#   3.00 V/celda →   0 % SoC  (corte absoluto del BMS)
+#
+# Ref.: Samsung SDI. (2015). INR18650-30Q Specification Sheet, Fig. 3 —
+#       Discharge Curve at 25 °C, 0.2C/1C/2C.
+# Ref.: Plett, G. L. (2015). Battery Management Systems, Vol. I: Battery
+#       Modeling. Artech House. §1.3.2 — OCV-SoC curve for NMC chemistry.
+#
+# BATT_WARN_MV = 14 000 mV (3.5 V/celda × 4S):
+#   ~20 % SoC → el rover tiene autonomía para volver a base de forma ordenada.
+#
+# BATT_CRITICAL_MV = 12 800 mV (3.2 V/celda × 4S):
+#   ~5 % SoC → parada de emergencia; continuar descargando bajo 3.0 V/celda
+#   causa reducción irreversible de capacidad en celdas NMC por deposición
+#   de litio metálico en el ánodo de grafito.
+#   Ref.: Vetter, J. et al. (2005). "Ageing mechanisms in lithium-ion batteries."
+#   Journal of Power Sources, 147(1-2), 269-281. §3.1 — Li plating at low SoC.
+#
+# Temperatura: TEMP_WARN_C / TEMP_CRIT_C comparan contra temp_c del TLM,
+#   que es la temperatura AMBIENTE medida por el LM335 (sensor en el PCB del
+#   LLC, no en la superficie de la celda). El LLC usa sensores NTC en celda
+#   para sus propios umbrales (BATT_WARN_C=45 / BATT_LIMIT_C=55 / BATT_FAULT_C=65).
+#
+#   Relación entre sensores bajo carga:
+#     T_celda ≈ T_ambiente + 10–15 °C  (conducción + convección natural)
+#   Por tanto, cuando T_ambiente (LM335) llega a TEMP_CRIT_C = 60 °C,
+#   las celdas ya están a ~70–75 °C, lo que significa que el LLC ya habrá
+#   disparado BATT_FAULT_C = 65 °C y SafeMode se habrá activado por
+#   tlm.safety == "FAULT" ANTES de que TEMP_CRIT_C se alcance en condiciones
+#   normales. TEMP_CRIT_C actúa como red de seguridad secundaria para el
+#   caso en que el sensor NTC de celda falle (pin ADC flotante o desconexión).
+#   Ref.: IEC 62133-2:2017 §4.3.8 — Temperature limits for secondary
+#   lithium cells in portable equipment.
 
-BATT_WARN_MV      = int  (_cfg.get("batt_warn_mv",      14000)) # 3.5 V/celda × 4S (EPS-REQ-001)
-BATT_CRITICAL_MV  = int  (_cfg.get("batt_critical_mv",  12800)) # 3.2 V/celda × 4S → STB
-TEMP_WARN_C       = int  (_cfg.get("temp_warn_c",       45))    # °C → advertencia (RNF-004)
-TEMP_CRIT_C       = int  (_cfg.get("temp_crit_c",       60))    # °C → Safe Mode (RNF-004)
+BATT_WARN_MV      = int  (_cfg.get("batt_warn_mv",      14000)) # 3.5 V/celda × 4S ≈ 20 % SoC (EPS-REQ-001)
+BATT_CRITICAL_MV  = int  (_cfg.get("batt_critical_mv",  12800)) # 3.2 V/celda × 4S ≈  5 % SoC → STB inmediato
+TEMP_WARN_C       = int  (_cfg.get("temp_warn_c",       45))    # Temperatura AMBIENTE (LM335) → advertencia (RNF-004)
+TEMP_CRIT_C       = int  (_cfg.get("temp_crit_c",       60))    # Temperatura AMBIENTE (LM335) → Safe Mode; red secundaria (ver nota arriba)
 
 # ─── Storage ─────────────────────────────────────────────────────────────────
 
