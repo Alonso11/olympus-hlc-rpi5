@@ -14,6 +14,7 @@ from .config import (
     STORAGE_MIN_MB, STORAGE_CHECK_CYCLES,
     RETREAT_DIST_MM,
     GCS_LINK_LOST_S, GCS_MAX_RETRIES,
+    POWEROFF_DELAY_S, POWEROFF_ENABLED,
 )
 from .interfaces import CommandSource
 from .logger import OlympusLogger
@@ -67,6 +68,9 @@ class HlcEngine:
         self._cycle_count        = 0
         self._last_storage_check = 0
 
+        # Power management (SYS-FUN-040)
+        self._poweroff_at: float = 0.0  # monotonic del apagado programado, 0 = ninguno
+
         # CommLink (solo para GCSSource, None para las demás)
         self._comm_link     = source.make_link_monitor()
         self._gcs_stb_forced = False
@@ -77,6 +81,10 @@ class HlcEngine:
         self._log.info("CTRL", f"Starting in {self._mode.upper()} mode")
         try:
             while True:
+                # Power management: apagar OS si la batería activó SafeMode (SYS-FUN-040)
+                if self._poweroff_at > 0 and time.monotonic() >= self._poweroff_at:
+                    self._trigger_poweroff()
+
                 cycle_start  = time.monotonic()
                 tlm_override = self._tick_telemetry()
                 cmd = tlm_override or self._source.next_command(self._log)
@@ -225,6 +233,16 @@ class HlcEngine:
                     f"(SYS-FUN-040) — solo STB/PING permitidos"
                 )
                 self._slip.reset()
+                # Batería crítica → programar apagado del OS (SYS-FUN-040).
+                # El delay da tiempo al LLC para procesar SAFE y al log para
+                # sincronizarse antes de cortar la alimentación.
+                if "batería" in self._safe_mode.reason and self._poweroff_at == 0.0:
+                    self._poweroff_at = time.monotonic() + POWEROFF_DELAY_S
+                    self._log.warn(
+                        "EPS",
+                        f"Poweroff programado en {POWEROFF_DELAY_S} s "
+                        f"(POWEROFF_ENABLED={POWEROFF_ENABLED})"
+                    )
                 # Primera activación: notificar al LLC via Command::Safe (ICD-LLC-001).
                 # El LLC entra en RoverState::Safe y bloquea todo movimiento hasta RST.
                 # En ciclos posteriores (just_activated=False), solo el keepalive PING
@@ -381,6 +399,28 @@ class HlcEngine:
                 )
         except OSError:
             pass
+
+    def _trigger_poweroff(self) -> None:
+        """
+        Apagado seguro del OS ante batería crítica (SYS-FUN-040).
+
+        Secuencia:
+          1. STB al LLC + sync de logs (_shutdown)
+          2. systemctl poweroff — apaga el OS limpiamente para proteger la SD
+          3. SystemExit(0) como red de seguridad si poweroff tarda o está desactivado
+
+        POWEROFF_ENABLED=False: omite el systemctl (dry-run / tests).
+        """
+        self._log.warn(
+            "EPS",
+            f"POWEROFF — apagando sistema operativo "
+            f"(POWEROFF_ENABLED={POWEROFF_ENABLED}, SYS-FUN-040)"
+        )
+        self._shutdown()
+        if POWEROFF_ENABLED:
+            import subprocess
+            subprocess.run(["systemctl", "poweroff"], check=False)
+        raise SystemExit(0)
 
     def _shutdown(self) -> None:
         """Secuencia de apagado seguro (SYS-FUN-050, SYS-FUN-051)."""

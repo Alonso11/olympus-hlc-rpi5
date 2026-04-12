@@ -92,6 +92,23 @@ BATT_CRITICAL_MV  = int  (_cfg.get("batt_critical_mv",  12800)) # 3.2 V/celda ×
 TEMP_WARN_C       = int  (_cfg.get("temp_warn_c",       45))    # Temperatura AMBIENTE (LM335) → advertencia (RNF-004)
 TEMP_CRIT_C       = int  (_cfg.get("temp_crit_c",       60))    # Temperatura AMBIENTE (LM335) → Safe Mode; red secundaria (ver nota arriba)
 
+# ─── Power management (SYS-FUN-040) ─────────────────────────────────────────
+#
+# Cuando SafeMode se activa por batería crítica, el HLC envía STB al LLC y
+# luego programa el apagado del sistema operativo (RPi5) tras POWEROFF_DELAY_S
+# segundos. El delay da tiempo al LLC para procesar el comando SAFE y al log
+# para sincronizarse a almacenamiento no volátil antes de cortar la alimentación.
+#
+# POWEROFF_ENABLED = false desactiva el poweroff — OBLIGATORIO en dry-run y
+# tests para evitar apagar la máquina de desarrollo durante pytest.
+#
+# Ref.: ESA PSS-05-0 Issue 2 (1991) §6.2.3 — Orderly system shutdown on
+#       power-fail detection. Equivalente en sistemas embebidos modernos:
+#       "soft poweroff with state persistence before rail collapse."
+
+POWEROFF_DELAY_S = int (_cfg.get("poweroff_delay_s", 5))    # s entre SafeMode y apagado OS
+POWEROFF_ENABLED = bool(_cfg.get("poweroff_enabled", True)) # False en dry-run/testing
+
 # ─── Storage ─────────────────────────────────────────────────────────────────
 
 STORAGE_MIN_MB       = int(_cfg.get("storage_min_mb",       50))   # MB libres mínimos (SRS-014)

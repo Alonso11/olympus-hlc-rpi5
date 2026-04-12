@@ -599,6 +599,40 @@ class TestHlcEngine:
         assert log.exists()
         assert log.stat().st_size > 0
 
+    def test_poweroff_scheduled_on_critical_battery(self, tmp_path, monkeypatch):
+        """
+        Con batería crítica el engine debe programar el poweroff OS (SYS-FUN-040).
+        monkeypatch desactiva la ejecución real de systemctl para el test.
+        """
+        import olympus_hlc.engine as eng_mod
+        monkeypatch.setattr(eng_mod, "POWEROFF_ENABLED", False)
+
+        rover  = _LimitedRover(TLM_CRITICAL_BATT, max_cycles=2)
+        source = _NullSource("STB")
+        engine = HlcEngine(rover, source, "manual",
+                           log_path=str(tmp_path / "hlc.log"))
+        engine.run()
+
+        assert engine._poweroff_at > 0, \
+            "_poweroff_at debe quedar > 0 tras recibir TLM con batería crítica"
+
+    def test_poweroff_not_scheduled_on_thermal_or_fault(self, tmp_path, monkeypatch):
+        """
+        Safe Mode por LLC FAULT o temperatura NO debe programar poweroff.
+        Solo la causa de batería crítica justifica apagar el OS.
+        """
+        import olympus_hlc.engine as eng_mod
+        monkeypatch.setattr(eng_mod, "POWEROFF_ENABLED", False)
+
+        for tlm in (TLM_LLC_FAULT, TLM_HOT):
+            rover  = _LimitedRover(tlm, max_cycles=2)
+            source = _NullSource("STB")
+            engine = HlcEngine(rover, source, "manual",
+                               log_path=str(tmp_path / "hlc.log"))
+            engine.run()
+            assert engine._poweroff_at == 0.0, \
+                f"poweroff NO debe programarse para tlm={tlm[:40]}..."
+
 
 # ─── OdometryTracker ─────────────────────────────────────────────────────────
 

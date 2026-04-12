@@ -73,6 +73,25 @@ batt_warn_mv: 14000
 # 3.2 V/celda × 4S = 12.8 V → nivel CRITICAL, forzar STB inmediato.
 batt_critical_mv: 12800
 
+# ─── Power management (SYS-FUN-040) ─────────────────────────────────────────
+#
+# Cuando batt_mv < batt_critical_mv, el HLC activa Safe Mode, detiene el rover
+# y programa el apagado del OS (RPi5) tras poweroff_delay_s segundos.
+#
+# El delay sirve para:
+#   - Dar tiempo al LLC para procesar el comando SAFE (≤ 300 ms según ICD)
+#   - Sincronizar el log en /var/log/olympus/ antes de cortar la alimentación
+#   - Permitir al operador cancelar el apagado por SSH si fue una lectura falsa
+#     (ej. spike de tensión por carga transitoria del motor)
+#
+# Ajustar poweroff_delay_s en campo según la capacidad residual estimada del
+# pack cuando batt_critical_mv se dispara (~5 % SoC ≈ 2–5 min de autonomía
+# para pack 4S 3 Ah a 1C — más que suficiente para el delay de 5 s).
+#
+# poweroff_enabled: false → omite systemctl poweroff (usar en dry-run y tests).
+poweroff_delay_s: 5
+poweroff_enabled: true
+
 # ─── Visión (modo --mode vision) ─────────────────────────────────────────────
 frame_width: 640
 frame_height: 480
