@@ -1,4 +1,4 @@
-// Version: v1.5
+// Version: v1.6
 use pyo3::prelude::*;
 use serialport;
 use std::time::{Duration, Instant};
@@ -191,8 +191,13 @@ impl Rover {
             match port.read(&mut buf) {
                 Ok(1) => {
                     if buf[0] == b'\n' {
-                        // Frame completo — descartar si es telemetría
-                        if response.starts_with(b"TLM:") {
+                        // Frame completo — descartar si no es una respuesta de protocolo.
+                        // Prefijos válidos: PONG, ACK:, ERR:
+                        // Prefijos async a ignorar: TLM:, WARN:, INFO:, RESET:, DBG:, RAW:
+                        let is_protocol = response.starts_with(b"PONG")
+                            || response.starts_with(b"ACK:")
+                            || response.starts_with(b"ERR:");
+                        if !is_protocol {
                             response.clear();
                             continue 'outer;
                         }
