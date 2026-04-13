@@ -30,9 +30,12 @@ class RoverMSM:
         return time.monotonic() - self._entered
 
     def blocks_command(self, cmd: str) -> bool:
-        """En FAULT o SAFE solo RST y PING son válidos (ICD LLC §Tabla de estados)."""
+        """
+        En FAULT o SAFE solo RST, PING y BNK:0 son válidos.
+        BNK:0 corta ambos bancos de batería — siempre permitido (ICD LLC §Tabla de estados).
+        """
         if self._state in (RoverState.FAULT, RoverState.SAFE):
-            return cmd not in ("RST", "PING")
+            return cmd not in ("RST", "PING", "BNK:0")
         return False
 
 
@@ -63,6 +66,11 @@ class DryRunRover:
         if cmd.startswith("EXP:"):
             self._state = "EXP"
             return "ACK:EXP"
+        if cmd.startswith("BNK:"):
+            bank = cmd[4:]
+            if bank in ("0", "2", "3", "12"):
+                return f"ACK:BNK:{bank}"
+            return "ERR:UNKNOWN"
         new_state = self._CMD_TO_STATE.get(cmd)
         if new_state is not None:
             self._state = new_state
@@ -98,6 +106,8 @@ def parse_response(resp: str) -> "tuple[str, str | None]":
     """
     if resp == "PONG":
         return ("pong", None)
+    if resp.startswith("ACK:BNK:"):
+        return ("bank_ack", resp[8:])   # "0", "2", "3" or "12"
     if resp.startswith("ACK:"):
         return ("ack", resp[4:])
     if resp == "ERR:ESTOP":

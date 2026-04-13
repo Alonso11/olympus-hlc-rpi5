@@ -18,7 +18,7 @@ from .config import (
 )
 from .interfaces import CommandSource
 from .logger import OlympusLogger
-from .models import EnergyLevel, RoverState, ThermalLevel, TlmFrame
+from .models import BankMode, EnergyLevel, RoverState, ThermalLevel, TlmFrame
 from .monitors import (
     EnergyMonitor, SafeMode, SlipMonitor, ThermalMonitor, WaypointTracker,
 )
@@ -70,6 +70,9 @@ class HlcEngine:
 
         # Power management (SYS-FUN-040)
         self._poweroff_at: float = 0.0  # monotonic del apagado programado, 0 = ninguno
+
+        # Bank mode mirror (ICD-LLC-001 §relay)
+        self._bank_mode: BankMode = BankMode.BANK2_ONLY
 
         # CommLink (solo para GCSSource, None para las demás)
         self._comm_link     = source.make_link_monitor()
@@ -247,6 +250,10 @@ class HlcEngine:
                 # El LLC entra en RoverState::Safe y bloquea todo movimiento hasta RST.
                 # En ciclos posteriores (just_activated=False), solo el keepalive PING
                 # del engine loop llega al LLC — sin comandos adicionales.
+                # Cortar bancos de batería (relay) — BNK:0 siempre permitido en FAULT/SAFE.
+                _send(self._rover, "BNK:0", self._log)
+                self._bank_mode = BankMode.ALL_OFF
+                self._log.warn("EPS", "BNK:0 enviado — relay: ambos bancos OFF")
                 return "SAFE"
             self._slip.reset()
             return None  # Safe Mode ya activo: engine solo envía PING keepalive
@@ -327,7 +334,14 @@ class HlcEngine:
         kind, data = _send(self._rover, cmd, self._log)
         self._last_cmd_time = time.monotonic()
 
-        if kind == "ack" and data is not None:
+        if kind == "bank_ack" and data is not None:
+            try:
+                self._bank_mode = BankMode(data)
+                self._log.info("EPS", f"relay → BNK:{data} ({self._bank_mode.name})")
+            except ValueError:
+                self._log.warn("CMD", f"ACK:BNK:{data} — valor desconocido")
+
+        elif kind == "ack" and data is not None:
             new_state = RoverState.from_ack(data)
             if new_state is not None:
                 self._log.log_transition(self._msm.state, new_state, f"ACK:{data}")
@@ -335,6 +349,10 @@ class HlcEngine:
             if cmd == "RST":
                 self._safe_mode.reset()
                 self._log.info("EPS", "Safe Mode desactivado por RST del operador")
+                # Restaurar banco primario tras salir de SAFE/FAULT (ICD-LLC-001).
+                _send(self._rover, "BNK:2", self._log)
+                self._bank_mode = BankMode.BANK2_ONLY
+                self._log.info("EPS", "relay → BNK:2 (Bank2Only restaurado)")
 
         elif kind == "err_wdog":
             self._log.log_transition(

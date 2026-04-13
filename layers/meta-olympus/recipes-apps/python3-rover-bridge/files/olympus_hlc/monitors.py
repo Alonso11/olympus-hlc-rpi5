@@ -239,8 +239,11 @@ class SafeMode:
         self._just_activated = False
 
     def blocks_command(self, cmd: str) -> bool:
-        """True si el comando debe bloquearse estando en Safe Mode."""
-        return self._active and cmd not in ("STB", "PING", "RST")
+        """
+        True si el comando debe bloquearse estando en Safe Mode.
+        BNK:0 siempre permitido — corte de emergencia del relay (ICD-LLC-001).
+        """
+        return self._active and cmd not in ("STB", "PING", "RST", "BNK:0")
 
 
 # ─── GCS Comm Link Monitor ───────────────────────────────────────────────────

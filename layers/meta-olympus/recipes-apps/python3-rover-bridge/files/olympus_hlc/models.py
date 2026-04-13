@@ -123,3 +123,22 @@ class ThermalLevel(enum.Enum):
 class CommLinkState(enum.Enum):
     COMUNICAR      = "Comunicar"
     GESTION_ENLACE = "GestiónEnlace"
+
+
+# ─── Battery Bank Mode ────────────────────────────────────────────────────────
+
+class BankMode(enum.Enum):
+    """
+    Modo de banco de batería para los puentes H (LLC §relay, ICD-LLC-001).
+
+    | BNK:N | D40 | D41 | Resultado                        |
+    |-------|-----|-----|----------------------------------|
+    |   0   | HI  | HI  | Ambos OFF — emergencia / apagado |
+    |   2   | LO  | HI  | Bank 2 activo — operación normal |
+    |   3   | HI  | LO  | Bank 3 activo — failover manual  |
+    |  12   | LO  | LO  | Ambos activos — máx. corriente   |
+    """
+    ALL_OFF    = "0"   # emergencia: ambos bancos cortados
+    BANK2_ONLY = "2"   # operación normal
+    BANK3_ONLY = "3"   # failover manual
+    BOTH_BANKS = "12"  # paralelo — máxima corriente
