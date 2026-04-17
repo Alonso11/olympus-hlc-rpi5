@@ -13,23 +13,25 @@ import enum
 class TlmFrame:
     """
     Frame de telemetría extendida emitido por el Arduino (~1 s).
-    Formato: TLM:<SAF>:<STALL>:<TS>ms:<MV>mV:<MA>mA:<I0>:<I1>:<I2>:<I3>:<I4>:<I5>:<T>C:<B0>:<B1>:<B2>:<B3>:<B4>:<B5>C:<DIST>mm:<EL>:<ER>:<X>:<Y>:<TH>
+    Formato v2.15:
+      TLM:<SAF>:<STALL>:<TS>ms:<MV>mV:<MA>mA:<I0..I5>:<T>C:<B0..B5>C:<DIST>mm:<EL>:<ER>:<X>:<Y>:<TH>:<DIST_FAR>mm
     (Ref. ICD LLC §Frame de telemetría extendida, SyRS-030)
     """
-    safety:     str    # "NORMAL" | "WARN" | "LIMIT" | "FAULT"
-    stall_mask: int    # 6 bits: bit5=FR … bit0=RL
-    tick_ms:    int    # ms desde boot del Arduino (contador monotónico)
-    batt_mv:    int    # tensión batería en mV  (0 = sin lectura)
-    batt_ma:    int    # corriente batería en mA con signo
-    currents:   list   # [FR, FL, CR, CL, RR, RL] mA
-    temp_c:     int    # temperatura ambiente °C
-    batt_temps: list   # [B1a, B1b, B2a, B2b, B3a, B3b] °C
-    dist_mm:    int    # distancia ToF en mm (0 = sin lectura)
-    enc_left:   int    # acumulador pulsos encoder izquierdo (FL+CL+RL)
-    enc_right:  int    # acumulador pulsos encoder derecho  (FR+CR+RR)
-    x_mm:       int    # Posición X (EKF)
-    y_mm:       int    # Posición Y (EKF)
-    theta_mrad: int    # Orientación milirrad (EKF)
+    safety:       str    # "NORMAL" | "WARN" | "LIMIT" | "FAULT"
+    stall_mask:   int    # 6 bits: bit5=FR … bit0=RL
+    tick_ms:      int    # ms desde boot del Arduino (contador monotónico)
+    batt_mv:      int    # tensión batería en mV  (0 = sin lectura)
+    batt_ma:      int    # corriente batería en mA con signo
+    currents:     list   # [FR, FL, CR, CL, RR, RL] mA
+    temp_c:       int    # temperatura ambiente °C
+    batt_temps:   list   # [B1a, B1b, B2a, B2b, B3a, B3b] °C
+    dist_mm:      int    # distancia VL53L0X en mm — rango 3 cm–2 m (0 = sin lectura)
+    enc_left:     int    # acumulador pulsos encoder izquierdo (FL+CL+RL)
+    enc_right:    int    # acumulador pulsos encoder derecho  (FR+CR+RR)
+    x_mm:         int    # Posición X (EKF)
+    y_mm:         int    # Posición Y (EKF)
+    theta_mrad:   int    # Orientación milirrad (EKF)
+    dist_far_mm:  int    # distancia TF02 en mm — rango 40 cm–22 m (0 = sin lectura)
 
     @staticmethod
     def parse(raw: str) -> "TlmFrame | None":
@@ -37,8 +39,8 @@ class TlmFrame:
         Parsea un frame TLM crudo (sin el \\n final).
         Retorna TlmFrame o None si el formato no es válido.
 
-        Ejemplo:
-          TLM:NORMAL:000000:12340ms:11800mV:2350mA:200:210:195:205:180:190:24C:25:25:26:26:25:25C:450mm:60:62:120:-45:31
+        Ejemplo v2.15:
+          TLM:NORMAL:000000:12340ms:11800mV:2350mA:200:210:195:205:180:190:24C:25:25:26:26:25:25C:450mm:60:62:120:-45:31:3200mm
         """
         try:
             parts = raw.split(":")
@@ -63,12 +65,15 @@ class TlmFrame:
             x_mm       = int(parts[22]) if len(parts) > 22 else 0
             y_mm       = int(parts[23]) if len(parts) > 23 else 0
             theta_mrad = int(parts[24]) if len(parts) > 24 else 0
+            # dist_far_mm: TF02 LiDAR largo alcance (≥ v2.15, campo 25)
+            dist_far_mm = int(parts[25].rstrip("mm")) if len(parts) > 25 else 0
             return TlmFrame(
                 safety=safety, stall_mask=stall_mask, tick_ms=tick_ms,
                 batt_mv=batt_mv, batt_ma=batt_ma, currents=currents,
                 temp_c=temp_c, batt_temps=batt_temps, dist_mm=dist_mm,
                 enc_left=enc_left, enc_right=enc_right,
                 x_mm=x_mm, y_mm=y_mm, theta_mrad=theta_mrad,
+                dist_far_mm=dist_far_mm,
             )
         except (ValueError, IndexError):
             return None
