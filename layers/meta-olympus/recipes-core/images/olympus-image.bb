@@ -8,6 +8,8 @@ inherit core-image
 IMAGE_INSTALL:append = " \
     libcsp \
     libcsp-dev \
+    zeromq \
+    csp-zmqproxy \
     custom-udev-rules \
     resize-rootfs \
     wifi-config \

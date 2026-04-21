@@ -1,0 +1,22 @@
+[Unit]
+Description=CSP ZMQ Proxy — libcsp routing hub (WiFi gateway)
+Documentation=https://github.com/libcsp/libcsp
+After=network.target
+# Debe arrancar antes que el HLC para que el zmqhub_init() no falle
+Before=olympus-hlc.service
+
+[Service]
+Type=simple
+# Puertos fijos (csp_if_zmqhub.h):
+#   -s tcp://0.0.0.0:6000  XSUB — nodos publican aquí
+#   -p tcp://0.0.0.0:7000  XPUB — nodos suscriben aquí
+ExecStart=/usr/bin/csp_zmqproxy \
+    -s tcp://0.0.0.0:6000 \
+    -p tcp://0.0.0.0:7000
+Restart=always
+RestartSec=3
+# No bloquear el arranque del sistema si el proxy falla
+TimeoutStartSec=5
+
+[Install]
+WantedBy=multi-user.target

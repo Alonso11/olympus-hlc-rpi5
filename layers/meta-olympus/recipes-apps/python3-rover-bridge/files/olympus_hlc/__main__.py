@@ -56,9 +56,15 @@ def main() -> None:
     parser.add_argument(
         "--use-libcsp",
         action="store_true",
-        help="Use native libcsp socket API instead of raw UDP+CSPPacket (requires "
-             "libcsp Python bindings in site-packages). Enables real CSP routing "
-             "for future UHF interface integration.",
+        help="Use native libcsp_py3 + ZMQ transport instead of raw UDP+CSPPacket. "
+             "Requires libcsp built with CSP_HAVE_LIBZMQ=ON (Yocto image) and "
+             "csp-zmqproxy.service active on the RPi5.",
+    )
+    parser.add_argument(
+        "--zmq-host",
+        default="localhost",
+        help="Hostname/IP of csp_zmqproxy (default: localhost). "
+             "Use the RPi5 WiFi IP when running the GCS mock from a laptop.",
     )
     parser.add_argument(
         "--log-path",
@@ -88,7 +94,7 @@ def main() -> None:
         source = ManualSource()
     elif args.mode == "gcs":
         if args.use_libcsp:
-            source = LibcspGCSSource()
+            source = LibcspGCSSource(zmq_host=args.zmq_host)
         else:
             source = GCSSource()
     else:

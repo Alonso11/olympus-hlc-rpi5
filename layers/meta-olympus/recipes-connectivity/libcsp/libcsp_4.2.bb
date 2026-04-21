@@ -10,6 +10,7 @@ S = "${WORKDIR}/git"
 DEPENDS = " \
     python3-native \
     cmake-native \
+    zeromq \
 "
 
 inherit cmake python3native
@@ -19,6 +20,7 @@ EXTRA_OECMAKE = " \
     -DCSP_IF_UDP=ON \
     -DCSP_USE_RTABLE=ON \
     -DCSP_HAVE_STDIO=ON \
+    -DCSP_HAVE_LIBZMQ=ON \
     -DPYTHON_EXECUTABLE=${PYTHON} \
     -DCSP_BUFFER_COUNT=20 \
     -DCSP_BUFFER_SIZE=256 \
@@ -29,8 +31,10 @@ FILES_SOLIBSDEV = ""
 
 FILES:${PN} += " \
     ${libdir}/libcsp.so* \
+    ${libdir}/python3*/site-packages/libcsp_py3* \
     ${libdir}/python3*/site-packages/csp* \
     ${libdir}/python3*/site-packages/_csp* \
+    ${bindir}/csp_zmqproxy \
 "
 
 FILES:${PN}-dev += " \
@@ -40,6 +44,7 @@ FILES:${PN}-dev += " \
 RDEPENDS:${PN} = " \
     python3-core \
     python3-ctypes \
+    zeromq \
 "
 
 INSANE_SKIP:${PN}-dev = "dev-elf"

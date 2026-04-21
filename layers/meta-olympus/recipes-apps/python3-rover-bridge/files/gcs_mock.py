@@ -1,25 +1,22 @@
 #!/usr/bin/env python3
 """
-gcs_mock.py — GCS simulator para probar GCSSource en el HLC Olympus.
+gcs_mock.py — GCS simulator para probar GCSSource / LibcspGCSSource.
 
-Uso:
-  python3 gcs_mock.py <RPI5_IP> [--port-cmd 9000] [--port-tlm 9001] [--no-csp]
+Modos de transporte:
+  UDP (defecto)  — GCSSource (raw UDP + CSP header manual)
+    python3 gcs_mock.py <RPI5_IP>
+  ZMQ            — LibcspGCSSource (csp_zmqproxy en RPi5)
+    python3 gcs_mock.py <RPI5_IP> --zmq
+    Requiere: pip install pyzmq
 
-Requisitos: solo stdlib Python 3.8+. Sin dependencias externas.
-
-Protocolo (con CSP habilitado, defecto):
+Protocolo UDP (CSP habilitado, defecto):
   CMD → RPi5_IP:9000  (paquete CSP src=GCS=1, dst=HLC=2, dport=CMD=11)
   TLM ← RPi5_IP:9001  (paquete CSP src=HLC=2, dst=GCS=1, dport=TM=10)
-  HB  ← RPi5_IP:9001  (paquete CSP dport=HB=1 — probe de reconexión)
 
-Secuencia de test:
-  T0   Envía EXP:40:40 → espera TLM con mode=EXP
-  T+2s Envía STB       → espera TLM con mode=STB
-  T+4s Envía PING      → espera PONG en TLM o ACK
-  T+6s Pausa 12s       → RPi5 detecta link_lost (>10s) → fuerza STB
-  T+18s Envía STB      → RPi5 detecta link_restored
-  T+20s Envía EXP:40:40, luego FLT, luego RST → ciclo de falla
-  T+30s EXIT
+Protocolo ZMQ:
+  CMD → tcp://RPi5_IP:6000  (ZMQ PUB → csp_zmqproxy XSUB)
+  TLM ← tcp://RPi5_IP:7000  (ZMQ SUB ← csp_zmqproxy XPUB)
+  Wire format CSP v1: [1B dst][4B header BE][payload] (sin CRC32)
 """
 
 import argparse
@@ -143,9 +140,98 @@ class GCSMock:
         self._sock.close()
 
 
+# ── GCS mock ZMQ (LibcspGCSSource — csp_zmqproxy) ────────────────────────────
+
+class ZMQGCSMock:
+    """
+    GCS simulado vía ZMQ — contraparte de LibcspGCSSource.
+
+    Requiere pyzmq (pip install pyzmq) y csp_zmqproxy corriendo en el RPi5.
+
+    Wire format CSP v1 sobre ZMQ (csp_if_zmqhub.c):
+      Byte 0     : dirección destino CSP (para filtros ZMQ_SUBSCRIBE)
+      Bytes 1-4  : header CSP v1 big-endian (priority/src/dst/dport/sport/flags)
+      Bytes 5+   : payload ASCII
+      (sin CRC32 — ZMQ gestiona integridad a nivel de transporte)
+    """
+
+    def __init__(self, rpi_ip: str):
+        try:
+            import zmq as _zmq
+            self._zmq = _zmq
+        except ImportError:
+            raise SystemExit(
+                "pyzmq no instalado. Ejecutar: pip install pyzmq\n"
+                "O usar modo UDP (sin --zmq)."
+            )
+        ctx = self._zmq.Context()
+
+        # PUB → csp_zmqproxy XSUB:6000 (enviamos comandos al rover)
+        self._pub = ctx.socket(self._zmq.PUB)
+        self._pub.connect(f"tcp://{rpi_ip}:6000")
+
+        # SUB ← csp_zmqproxy XPUB:7000 (recibimos TLM del rover)
+        self._sub = ctx.socket(self._zmq.SUB)
+        self._sub.connect(f"tcp://{rpi_ip}:7000")
+        # Suscribir solo a paquetes cuyo destino es CSP_ADDR_GCS=1
+        self._sub.setsockopt(self._zmq.SUBSCRIBE, bytes([CSP_ADDR_GCS]))
+
+        self._rpi_ip    = rpi_ip
+        self._tlm_count = 0
+        self._hb_count  = 0
+
+        time.sleep(0.5)  # ZMQ necesita tiempo para establecer conexión PUB→SUB
+        print(f"[GCS-ZMQ] zmqproxy {rpi_ip}:6000/7000  node={CSP_ADDR_GCS}")
+
+    def _pack(self, src: int, dst: int, dport: int, sport: int,
+              payload: bytes) -> bytes:
+        header = (
+            ((PRIO_NORM & 0x03) << 30) |
+            ((src   & 0x1F) << 25) |
+            ((dst   & 0x1F) << 20) |
+            ((dport & 0x3F) << 14) |
+            ((sport & 0x3F) <<  8)
+        )
+        return bytes([dst]) + struct.pack(">I", header) + payload
+
+    def send_cmd(self, cmd: str) -> None:
+        msg = self._pack(CSP_ADDR_GCS, CSP_ADDR_HLC, CSP_PORT_CMD, 0, cmd.encode())
+        self._pub.send(msg)
+        print(f"[GCS → HLC] {cmd}")
+
+    def drain_tlm(self, timeout_s: float = 0.3) -> None:
+        deadline = time.monotonic() + timeout_s
+        while True:
+            remaining = max(0, int((deadline - time.monotonic()) * 1000))
+            if self._sub.poll(timeout=remaining) == 0:
+                break
+            try:
+                data = self._sub.recv(flags=self._zmq.NOBLOCK)
+            except Exception:
+                break
+            if len(data) < 5:
+                continue
+            header  = struct.unpack(">I", data[1:5])[0]
+            payload = data[5:]
+            dport   = (header >> 14) & 0x3F
+            text    = payload.decode(errors="replace").strip()
+            if dport == CSP_PORT_TM:
+                self._tlm_count += 1
+                print(f"[HLC → GCS] TLM #{self._tlm_count}: {text}")
+            elif dport == CSP_PORT_HB:
+                self._hb_count += 1
+                print(f"[HLC → GCS] HB_REQ #{self._hb_count}: {text}")
+            else:
+                print(f"[HLC → GCS] CSP port={dport}: {text}")
+
+    def close(self) -> None:
+        self._pub.close()
+        self._sub.close()
+
+
 # ── Secuencia de test ─────────────────────────────────────────────────────────
 
-def run_tests(gcs: GCSMock) -> None:
+def run_tests(gcs: "GCSMock | ZMQGCSMock") -> None:
     PASS = "✓"
     FAIL = "✗"
 
@@ -194,8 +280,8 @@ def run_tests(gcs: GCSMock) -> None:
     gcs.drain_tlm(1.5)
     print(f"[{PASS}] Ver log HLC para transición FAULT → STANDBY")
 
-    # ── Test 7: CRC corrupto (solo CSP) ──────────────────────────────────────
-    if gcs._csp:
+    # ── Test 7: CRC corrupto (solo UDP/CSP — no aplica a ZMQ) ────────────────
+    if isinstance(gcs, GCSMock) and gcs._csp:
         step("T7 — Paquete CSP con CRC corrupto (debe ser descartado por HLC)")
         payload = b"EXP:99:99"
         bad_pkt  = csp_pack(CSP_ADDR_GCS, CSP_ADDR_HLC, CSP_PORT_CMD, 0, payload)
@@ -229,9 +315,14 @@ def main() -> None:
                         help="Puerto UDP TLM en laptop (default: 9001)")
     parser.add_argument("--no-csp", action="store_true",
                         help="Usar protocolo ASCII sin CSP (CSP_ENABLED=False en HLC)")
+    parser.add_argument("--zmq", action="store_true",
+                        help="Usar ZMQ (LibcspGCSSource) en lugar de UDP. Requiere: pip install pyzmq")
     args = parser.parse_args()
 
-    gcs = GCSMock(args.rpi_ip, args.port_cmd, args.port_tlm, csp=not args.no_csp)
+    if args.zmq:
+        gcs = ZMQGCSMock(args.rpi_ip)
+    else:
+        gcs = GCSMock(args.rpi_ip, args.port_cmd, args.port_tlm, csp=not args.no_csp)
     try:
         run_tests(gcs)
     except KeyboardInterrupt:
