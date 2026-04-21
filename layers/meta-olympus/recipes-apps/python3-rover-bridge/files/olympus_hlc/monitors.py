@@ -32,8 +32,8 @@ class WaypointTracker:
         self._retreat_dist: int  = retreat_dist_mm
 
     def record(self, tlm, msm_state) -> None:
-        """Guarda un waypoint si el rover está en EXPLORE con safety NORMAL."""
-        if msm_state != RoverState.EXPLORE or tlm.safety != "NORMAL":
+        """Guarda un waypoint si el rover está en EXPLORE o CLIMB con safety NORMAL."""
+        if msm_state not in (RoverState.EXPLORE, RoverState.CLIMB) or tlm.safety != "NORMAL":
             return
         wp = Waypoint(
             tick_ms=tlm.tick_ms,
@@ -125,7 +125,7 @@ class SlipMonitor:
         Actualiza el contador con el último frame TLM.
         Retorna True si se debe emitir RET por slip persistente.
         """
-        if msm_state != RoverState.EXPLORE or tlm.stall_mask == 0:
+        if msm_state not in (RoverState.EXPLORE, RoverState.CLIMB) or tlm.stall_mask == 0:
             self._count = 0
             return False
         self._count += 1

@@ -66,6 +66,9 @@ class DryRunRover:
         if cmd.startswith("EXP:"):
             self._state = "EXP"
             return "ACK:EXP"
+        if cmd.startswith("CLB:"):
+            self._state = "CLB"
+            return "ACK:CLB"
         if cmd.startswith("BNK:"):
             bank = cmd[4:]
             if bank in ("0", "2", "3", "12"):

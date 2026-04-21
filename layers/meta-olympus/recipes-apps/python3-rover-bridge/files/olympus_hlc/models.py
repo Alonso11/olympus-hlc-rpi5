@@ -97,6 +97,10 @@ class RoverState(enum.Enum):
     EXPLORE = "EXP"
     AVOID   = "AVD"
     RETREAT = "RET"
+    # Modo escalada: velocidad diferencial con umbrales de proximidad relajados
+    # (LLC CLB_HC=60mm, CLB_TOF=50mm) y stall extendido (CLB_STALL=150 ciclos).
+    # Comando: CLB:L:R → ACK:CLB. Bloqueado en FAULT/SAFE igual que EXP.
+    CLIMB   = "CLB"
     FAULT   = "FLT"
     # Safe Mode: iniciado por HLC ante batería/temperatura crítica (SYS-FUN-040).
     # El LLC bloquea todos los comandos de movimiento hasta RST explícito.

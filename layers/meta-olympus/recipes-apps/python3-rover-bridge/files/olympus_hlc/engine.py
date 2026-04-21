@@ -258,7 +258,9 @@ class HlcEngine:
             self._slip.reset()
             return None  # Safe Mode ya activo: engine solo envía PING keepalive
 
-        if self._tracker.should_retreat(tlm):
+        # En CLIMB el terreno inclinado queda a < 300 mm del sensor frontal —
+        # suprimir el retreat táctico para evitar falsos positivos (CLB_TOF=50mm).
+        if self._msm.state != RoverState.CLIMB and self._tracker.should_retreat(tlm):
             wp = self._tracker.last_safe()
             wp_info = (f"last_safe tick={wp.tick_ms}ms dist={wp.dist_mm}mm"
                        if wp else "no waypoint previo")
