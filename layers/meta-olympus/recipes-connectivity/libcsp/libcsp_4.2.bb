@@ -11,18 +11,20 @@ SRCREV = "51628cd7a208edff81eff9b2b6fadc70dea5c5a4"
 S = "${WORKDIR}/git"
 
 DEPENDS = " \
+    python3 \
     python3-native \
     cmake-native \
 "
 
 inherit cmake python3native
 
+# Disable CMake's Python binding — it cross-compiles for the build host (x86_64)
+# instead of the target (aarch64). We compile it manually in do_compile:append.
 EXTRA_OECMAKE = " \
-    -DCSP_ENABLE_PYTHON3_BINDINGS=ON \
+    -DCSP_ENABLE_PYTHON3_BINDINGS=OFF \
     -DCSP_IF_UDP=ON \
     -DCSP_USE_RTABLE=ON \
     -DCSP_HAVE_STDIO=ON \
-    -DPYTHON_EXECUTABLE=${PYTHON} \
     -DCSP_BUFFER_COUNT=20 \
     -DCSP_BUFFER_SIZE=256 \
 "
@@ -30,13 +32,20 @@ EXTRA_OECMAKE = " \
 SOLIBS = ".so"
 FILES_SOLIBSDEV = ""
 
-# CMake builds the Python binding but has no install() rule for it —
-# copy it manually from the build dir to site-packages.
+do_compile:append() {
+    libcsp_so=$(find ${B} -name "libcsp.so" | head -1)
+    libcsp_dir=$(dirname ${libcsp_so})
+    ${CC} ${CFLAGS} -shared -fPIC \
+        -I${STAGING_INCDIR}/python${PYTHON_BASEVERSION} \
+        -I${S}/include \
+        ${S}/src/bindings/python/pycsp.c \
+        -L${libcsp_dir} -lcsp \
+        -o ${B}/libcsp_py3.so
+}
+
 do_install:append() {
     install -d ${D}${PYTHON_SITEPACKAGES_DIR}
-    find ${B} -name "libcsp_py3*.so" | while read f; do
-        install -m 0755 "$f" ${D}${PYTHON_SITEPACKAGES_DIR}/
-    done
+    install -m 0755 ${B}/libcsp_py3.so ${D}${PYTHON_SITEPACKAGES_DIR}/libcsp_py3.so
 }
 
 FILES:${PN} += " \
