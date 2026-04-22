@@ -180,14 +180,12 @@ CSP_PORT_CMD  = int (_cfg.get("csp_port_cmd", 11))
 CSP_PORT_HB   = int (_cfg.get("csp_port_hb",   1))
 CSP_ENABLED   = bool(_cfg.get("csp_enabled", True))
 
-# ─── ZMQ proxy (LibcspGCSSource, ICD-CSP-001) ────────────────────────────────
-# csp_zmqproxy corre en el RPi5 como servicio systemd (csp-zmqproxy.service).
-# Puertos fijos definidos en csp_if_zmqhub.h (libcsp 4.2):
-#   CSP_ZMQPROXY_SUBSCRIBE_PORT = 6000  (nodos publican aquí)
-#   CSP_ZMQPROXY_PUBLISH_PORT   = 7000  (nodos suscriben aquí)
-# Para cambiar el host del proxy (test desde laptop): editar zmq_proxy_host en
-# /etc/olympus/hlc.conf o pasar --zmq-host <ip> al lanzar el HLC.
-ZMQ_PROXY_HOST = str(_cfg.get("zmq_proxy_host", "localhost"))
+# ─── LibcspGCSSource UDP peer (ICD-CSP-001) ──────────────────────────────────
+# IP del GCS que LibcspGCSSource usa como destino TX (telemetría).
+# En campo: IP WiFi del laptop del operador.
+# En desarrollo: "127.0.0.1" si GCS mock corre en la misma máquina.
+# Se puede sobreescribir con --gcs-host <ip> al lanzar el HLC.
+CSP_UDP_GCS_HOST = str(_cfg.get("csp_udp_gcs_host", "127.0.0.1"))
 
 # ─── Odometry (RNF-003) ───────────────────────────────────────────────────────
 # Valores TBD — calibrar con hardware real (ver LLC config.rs comentarios).

@@ -1,24 +1,30 @@
-# olympus_hlc/sources/gcs_libcsp.py — LibcspGCSSource: real libcsp 4.2 + ZMQ
+# olympus_hlc/sources/gcs_libcsp.py — LibcspGCSSource: libcsp 4.2 nativo via UDP
 #
-# Usa libcsp_py3 (Python bindings nativos del paquete libcsp compilado en Yocto).
-# Transporte: csp_zmqproxy corriendo en localhost del RPi5 (systemd).
-# GCS conecta al zmqproxy del RPi5 via WiFi usando libcsp_py3 + zmqhub_init.
+# Transporte: csp_if_udp — WiFi punto-a-punto RPi5 ↔ GCS.
+# No requiere zmqproxy ni zeromq. El binding udp_init lo añade el patch
+# 0001-add-udp-python-binding.patch en la receta libcsp_4.2.bb.
 #
 # Arquitectura de red CSP (ICD-CSP-001):
 #
-#   ┌──────────────────────────────────────────────────────┐
-#   │  RPi5                                                │
-#   │  ┌─────────────────┐     ┌──────────────────────┐   │
-#   │  │ LibcspGCSSource │────▶│  csp_zmqproxy        │   │
-#   │  │ (CSP node=2)    │◀────│  XSUB :6000          │   │
-#   │  └─────────────────┘     │  XPUB :7000          │◀──┼── GCS WiFi
-#   └──────────────────────────┴──────────────────────┘   │
+#   GCS (laptop)                         RPi5
+#   libcsp node=1                        libcsp node=2  (este módulo)
+#   csp_if_udp                           csp_if_udp
+#     TX → RPi5_IP:9000  ─── WiFi ───→  lport=9000  (RX comandos)
+#     RX ← RPi5_IP:9001  ←───────────── rport=9001  (TX telemetría)
 #
-#   HLC: zmqhub_init(CSP_ADDR_HLC=2, "localhost")
-#   GCS: zmqhub_init(CSP_ADDR_GCS=1, "<rpi5_ip>")
+# ── Añadir radio UHF en el futuro ────────────────────────────────────────────
+# Cuando llegue el radio-módem UART (tipo AX100/ES920 a /dev/ttyUSB1):
 #
-# Activar:  python3 -m olympus_hlc --mode gcs --use-libcsp
-# Requiere: imagen Yocto con libcsp (CSP_HAVE_LIBZMQ=ON) + csp-zmqproxy.service
+#   csp.kiss_init("/dev/ttyUSB1", CSP_ADDR_HLC, baudrate=9600, is_default=False)
+#   csp.rtable_load(f"0/0 UDP\n{CSP_ADDR_GCS_UHF}/8 KISS")
+#
+# No hay que tocar nada más. El router CSP decide por dirección destino:
+#   - Paquetes a CSP_ADDR_GCS (1)          → por UDP  (WiFi)
+#   - Paquetes a CSP_ADDR_GCS_UHF (3)      → por KISS (radio)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Activar:  python3 -m olympus_hlc --mode gcs --use-libcsp --gcs-host <IP_GCS>
+# Requiere: imagen Yocto con libcsp (CSP_IF_UDP=ON + patch udp_init)
 
 import time
 
@@ -27,22 +33,14 @@ from ..monitors import CommLinkMonitor
 from ..config import (
     CSP_ADDR_HLC, CSP_ADDR_GCS,
     CSP_PORT_CMD, CSP_PORT_TM, CSP_PORT_HB,
-    GCS_LINK_LOST_S, ZMQ_PROXY_HOST,
+    GCS_LISTEN_PORT, GCS_REPLY_PORT,
 )
 
-# Constantes CSP — espejean los valores de libcsp_py3 para evitar importarlos
-# a nivel de módulo (el import puede fallar en el host de desarrollo).
 _CSP_PRIO_NORM = 2
 _CSP_O_NONE    = 0
 
 
 def _import_libcsp():
-    """
-    Importa libcsp_py3. Falla con mensaje claro si no está disponible.
-
-    El módulo se llama 'libcsp_py3' en el binding C (PyInit_libcsp_py3).
-    La imagen Yocto lo instala en site-packages via la receta libcsp_4.2.bb.
-    """
     try:
         import libcsp_py3  # noqa: PLC0415
         return libcsp_py3
@@ -50,45 +48,44 @@ def _import_libcsp():
         raise ImportError(
             "libcsp_py3 no encontrado. "
             "Verificar imagen Yocto: receta libcsp_4.2.bb con "
-            "CSP_HAVE_LIBZMQ=ON y csp-zmqproxy.service activo."
+            "CSP_IF_UDP=ON y patch 0001-add-udp-python-binding."
         ) from exc
 
 
 class LibcspGCSSource(CommandSource):
     """
-    Fuente de comandos GCS usando libcsp 4.2 nativo + ZMQ como transporte WiFi.
+    Fuente de comandos GCS usando libcsp 4.2 nativo con csp_if_udp (WiFi).
 
     Inicialización (una sola vez al arrancar el HLC):
-      1. csp.init()             — configura el nodo CSP local (addr=HLC)
-      2. csp.zmqhub_init()      — conecta al zmqproxy local (WiFi hub)
-      3. csp.rtable_load()      — ruta todos los paquetes por ZMQHUB
+      1. csp.init()           — configura el nodo CSP local (addr=HLC=2)
+      2. csp.udp_init()       — registra interfaz UDP; lanza hilo RX en lport
+      3. csp.rtable_load()    — ruta todos los paquetes por UDP
       4. csp.route_start_task() — lanza pthread interno de routing
-      5. csp.socket/bind/listen — servidor CSP en CSP_PORT_CMD
+      5. csp.socket/bind/listen — servidor CSP en CSP_ANY
 
-    Para añadir UHF en el futuro: csp.kiss_init() + entrada adicional en rtable.
-    Sin cambios en este código.
+    Para añadir UHF: csp.kiss_init() + actualizar rtable_load(). Sin más cambios.
     """
 
-    def __init__(self, zmq_host: str = ZMQ_PROXY_HOST):
+    def __init__(self, gcs_host: str):
         self._csp = _import_libcsp()
         csp = self._csp
 
-        # 1. Nodo CSP local
         csp.init("olympus-hlc", "RPi5", "2.16")
 
-        # 2. Interfaz ZMQ — conecta al zmqproxy en localhost (csp_zmqproxy.service)
-        #    addr  = dirección CSP local (para filtros ZMQ SUB por destino)
-        #    host  = IP del zmqproxy (localhost en RPi5, <rpi5_ip> en GCS)
-        csp.zmqhub_init(CSP_ADDR_HLC, zmq_host)
+        # Interfaz UDP — enlace WiFi punto-a-punto con el GCS.
+        # lport: puerto donde la RPi5 escucha comandos entrantes (GCS → RPi5).
+        # rport: puerto del GCS donde va la telemetría (RPi5 → GCS).
+        csp.udp_init(
+            CSP_ADDR_HLC,   # dirección CSP local
+            gcs_host,       # IP del GCS (peer TX)
+            GCS_LISTEN_PORT,  # lport=9000 — RX comandos
+            GCS_REPLY_PORT,   # rport=9001 — TX telemetría
+            True,           # is_default=True: ruta por defecto
+        )
 
-        # 3. Ruta por defecto: todos los destinos CSP via ZMQHUB
-        csp.rtable_load("0/0 ZMQHUB")
-
-        # 4. Lanzar tarea de routing (pthread detached — corre hasta el final)
+        csp.rtable_load("0/0 UDP")
         csp.route_start_task()
 
-        # 5. Socket servidor: escucha en CSP_ANY para recibir en cualquier puerto
-        #    y despachar por dport dentro de next_command().
         self._sock = csp.socket()
         csp.bind(self._sock, csp.CSP_ANY)
         csp.listen(self._sock, 5)
@@ -96,19 +93,12 @@ class LibcspGCSSource(CommandSource):
         self._last_recv = time.monotonic()
         self._probe_seq = 0
 
-        print(f"[LibcspGCSSource] node={CSP_ADDR_HLC} zmqproxy={zmq_host}:6000/7000")
+        print(f"[LibcspGCSSource] node={CSP_ADDR_HLC} UDP "
+              f"lport={GCS_LISTEN_PORT} → {gcs_host}:{GCS_REPLY_PORT}")
 
     # ── CommandSource interface ───────────────────────────────────────────────
 
     def next_command(self, log=None) -> "str | None":
-        """
-        Acepta conexiones CSP entrantes (non-blocking, timeout=0 ms).
-
-        Despacha por puerto de destino:
-          CSP_PORT_CMD → retorna payload como string de comando MSM.
-          CSP_PORT_HB  → actualiza last_recv, retorna None.
-          otros        → descarta, retorna None.
-        """
         csp = self._csp
         conn = csp.accept(self._sock, timeout_ms=0)
         if conn is None:
@@ -122,22 +112,22 @@ class LibcspGCSSource(CommandSource):
             return None
 
         self._last_recv = time.monotonic()
-        data   = bytes(csp.packet_get_data(pkt))
+        data = bytes(csp.packet_get_data(pkt))
         csp.buffer_free(pkt)
 
         if dport == CSP_PORT_HB:
             return None  # heartbeat — solo actualiza last_recv
 
         if dport != CSP_PORT_CMD:
-            return None  # servicio desconocido
+            return None
 
         cmd = data.decode("utf-8", errors="replace").strip()
         if log:
-            log.info("COMM", f"CSP CMD (ZMQ node {CSP_ADDR_GCS}→{CSP_ADDR_HLC}): {cmd!r}")
+            log.info("COMM", f"CSP CMD (UDP node {CSP_ADDR_GCS}→{CSP_ADDR_HLC}): {cmd!r}")
         return cmd
 
     def on_tlm(self, raw_tlm: str) -> None:
-        """Envía frame TLM al GCS como paquete CSP via ZMQ (downlink SRS-020)."""
+        """Envía frame TLM al GCS como paquete CSP via UDP (downlink SRS-020)."""
         self._send_payload(CSP_ADDR_GCS, CSP_PORT_TM, raw_tlm.encode())
 
     @property
@@ -161,20 +151,9 @@ class LibcspGCSSource(CommandSource):
         except Exception:
             pass
 
-    # ── Helpers internos ─────────────────────────────────────────────────────
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _send_payload(self, dst: int, dport: int, payload: bytes) -> None:
-        """
-        Encapsula payload en un paquete CSP y lo envía vía libcsp sendto.
-
-        Flujo:
-          buffer_get()       — aloca paquete del pool CSP (256 B, compile-time)
-          packet_set_data()  — copia payload al paquete
-          sendto()           — entrega al router CSP → ZMQHUB → GCS
-
-        Si el pool está agotado, la función retorna silenciosamente.
-        El tamaño máximo del payload es CSP_BUFFER_SIZE − CSP_HEADER_SIZE ≈ 252 B.
-        """
         csp = self._csp
         pkt = csp.buffer_get(len(payload))
         if pkt is None:
