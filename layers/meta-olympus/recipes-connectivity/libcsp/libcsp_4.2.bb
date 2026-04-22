@@ -38,6 +38,7 @@ do_compile:append() {
     ${CC} ${CFLAGS} -shared -fPIC \
         -I${STAGING_INCDIR}/python${PYTHON_BASEVERSION} \
         -I${S}/include \
+        -I${B}/include \
         ${S}/src/bindings/python/pycsp.c \
         -L${libcsp_dir} -lcsp \
         -o ${B}/libcsp_py3.so
