@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # olympus-mode.sh — cambia entre modo lab (WiFi cliente) y field (AP hotspot)
 #
 # Uso:
@@ -27,7 +27,7 @@ case "${1:-status}" in
     systemctl disable --now olympus-ap.service 2>/dev/null || true
     systemctl enable --now wpa_supplicant@wlan0.service
     sleep 3
-    IP=$(ip -4 addr show wlan0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' || echo "pendiente")
+    IP=$(ip -4 addr show wlan0 2>/dev/null | awk '/inet / {split($2,a,"/"); print a[1]; exit}' || echo "pendiente")
     echo "[olympus-mode] Listo"
     echo "  IP rover : ${IP}"
     echo "  GCS cmd  : python3 gcs_mock.py olympus-rover.local"
@@ -37,7 +37,7 @@ case "${1:-status}" in
     if systemctl is-active --quiet olympus-ap.service 2>/dev/null; then
       echo "FIELD — AP activo (Olympus-Rover / 192.168.100.1)"
     elif systemctl is-active --quiet wpa_supplicant@wlan0.service 2>/dev/null; then
-      IP=$(ip -4 addr show wlan0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' || echo "?")
+      IP=$(ip -4 addr show wlan0 2>/dev/null | awk '/inet / {split($2,a,"/"); print a[1]; exit}' || echo "?")
       echo "LAB — WiFi cliente activo (IP: ${IP})"
     else
       echo "SIN CONEXION — ningún servicio WiFi activo"
