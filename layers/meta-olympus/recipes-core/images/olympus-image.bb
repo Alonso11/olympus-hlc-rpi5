@@ -1,8 +1,10 @@
-# Version: v1.4
-SUMMARY = "Imagen Olympus: WiFi, UART, Sensores y Vision"
+# Version: v1.5
+SUMMARY = "Olympus Image: WiFi, UART, Sensors and Vision"
 LICENSE = "MIT"
 
 inherit core-image
+
+IMAGE_FSTYPES = "wic.bz2 wic.bmap"
 
 # Añadir soporte para WiFi, UART, SSH, Redimensionamiento, Sensores y Vision
 IMAGE_INSTALL:append = " \
