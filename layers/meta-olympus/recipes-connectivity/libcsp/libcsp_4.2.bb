@@ -35,7 +35,7 @@ FILES_SOLIBSDEV = ""
 do_compile:append() {
     libcsp_so=$(find ${B} -name "libcsp.so" | head -1)
     libcsp_dir=$(dirname ${libcsp_so})
-    ${CC} ${CFLAGS} -shared -fPIC \
+    ${CC} ${CFLAGS} ${LDFLAGS} -shared -fPIC \
         -I${STAGING_INCDIR}/python${PYTHON_BASEVERSION} \
         -I${S}/include \
         -I${B}/include \
