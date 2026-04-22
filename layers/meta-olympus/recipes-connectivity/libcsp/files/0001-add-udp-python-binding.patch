@@ -5,28 +5,22 @@ Subject: [PATCH] bindings/python: add udp_init wrapper
 Exposes csp_if_udp_init() to Python so LibcspGCSSource can use
 native libcsp over UDP WiFi without requiring ZMQ.
 
-The existing zmqhub_init binding is kept for reference but the
-build will no longer define CSP_HAVE_LIBZMQ, so it compiles out.
-kiss_init remains unconditionally available for the future UHF link.
-
 Signature:
   csp.udp_init(addr, host, lport, rport, is_default=False, mask=8)
     addr      : uint16 — local CSP address
-    host      : str    — remote peer IP (GCS)
+    host      : str    — remote peer IP (GCS); "" = dynamic peer learning
     lport     : int    — local UDP port to listen on (RX)
     rport     : int    — remote UDP port to send to (TX)
     is_default: bool   — mark as default route interface
-    mask      : uint16 — CSP netmask bits (default 8 = /8)
+    mask      : uint16 — CSP netmask bits (default 8)
 ---
- src/bindings/python/pycsp.c | 39 +++++++++++++++++++++++++++++++++++-
- 1 file changed, 38 insertions(+), 1 deletion(-)
+ src/bindings/python/pycsp.c | 44 ++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 43 insertions(+), 1 deletion(-)
 
 diff --git a/src/bindings/python/pycsp.c b/src/bindings/python/pycsp.c
-index 1234567..abcdefg 100644
 --- a/src/bindings/python/pycsp.c
 +++ b/src/bindings/python/pycsp.c
-@@ -5,6 +5,7 @@
- #include <csp/csp.h>
+@@ -6,6 +6,7 @@
  #include <csp/csp_cmp.h>
  #include <csp/interfaces/csp_if_zmqhub.h>
  #include <csp/interfaces/csp_if_kiss.h>
@@ -34,7 +28,7 @@ index 1234567..abcdefg 100644
  #include <csp/drivers/usart.h>
  #include <csp/drivers/can_socketcan.h>
  #include <endian.h>
-@@ -913,6 +914,42 @@ static PyObject * pycsp_kiss_init(PyObject * self, PyObject * args) {
+@@ -913,6 +914,43 @@
  	Py_RETURN_NONE;
  }
 
@@ -49,7 +43,7 @@ index 1234567..abcdefg 100644
 +	/* addr (H), host (s), lport (i), rport (i), is_default (p), mask (H) */
 +	if (!PyArg_ParseTuple(args, "Hsii|pH", &addr, &host, &lport, &rport,
 +	                      &is_default, &mask)) {
-+		return NULL;  /* TypeError thrown by PyArg_ParseTuple */
++		return NULL;
 +	}
 +
 +	/* csp_if_udp_conf_t holds a char* — copy the Python string so the
@@ -68,8 +62,8 @@ index 1234567..abcdefg 100644
 +
 +	csp_if_udp_init(&iface, &udp_conf);
 +
-+	iface.addr      = addr;
-+	iface.netmask   = mask;
++	iface.addr       = addr;
++	iface.netmask    = mask;
 +	iface.is_default = is_default;
 +
 +	Py_RETURN_NONE;
@@ -78,7 +72,8 @@ index 1234567..abcdefg 100644
  static PyObject * pycsp_packet_set_data(PyObject * self, PyObject * args) {
  	PyObject * packet_capsule;
  	Py_buffer data;
-@@ -1022,6 +1059,7 @@ static PyMethodDef methods[] = {
+@@ -1020,6 +1058,7 @@
+ 	{"zmqhub_init", pycsp_zmqhub_init, METH_VARARGS, ""},
  #endif /* CSP_HAVE_LIBZMQ */
  	{"kiss_init", pycsp_kiss_init, METH_VARARGS, ""},
 +	{"udp_init",  pycsp_udp_init,  METH_VARARGS, ""},
