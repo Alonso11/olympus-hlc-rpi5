@@ -4,6 +4,7 @@ LIC_FILES_CHKSUM = "file://LICENSE;md5=e38286c6cb20ecbf85b80bb4af68efdc"
 
 SRC_URI = "git://github.com/libcsp/libcsp.git;protocol=https;branch=develop \
            file://0001-add-udp-python-binding.patch \
+           file://0002-udp-dynamic-peer-learning.patch \
 "
 SRCREV = "51628cd7a208edff81eff9b2b6fadc70dea5c5a4"
 

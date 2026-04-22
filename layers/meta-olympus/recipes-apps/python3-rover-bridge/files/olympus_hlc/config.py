@@ -185,7 +185,7 @@ CSP_ENABLED   = bool(_cfg.get("csp_enabled", True))
 # En campo: IP WiFi del laptop del operador.
 # En desarrollo: "127.0.0.1" si GCS mock corre en la misma máquina.
 # Se puede sobreescribir con --gcs-host <ip> al lanzar el HLC.
-CSP_UDP_GCS_HOST = str(_cfg.get("csp_udp_gcs_host", "127.0.0.1"))
+CSP_UDP_GCS_HOST = str(_cfg.get("csp_udp_gcs_host", ""))
 
 # ─── Odometry (RNF-003) ───────────────────────────────────────────────────────
 # Valores TBD — calibrar con hardware real (ver LLC config.rs comentarios).

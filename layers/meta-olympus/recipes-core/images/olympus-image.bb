@@ -8,6 +8,11 @@ inherit core-image
 IMAGE_INSTALL:append = " \
     libcsp \
     libcsp-dev \
+    avahi-daemon \
+    avahi-olympus \
+    hostapd \
+    dnsmasq \
+    olympus-ap \
     custom-udev-rules \
     resize-rootfs \
     wifi-config \

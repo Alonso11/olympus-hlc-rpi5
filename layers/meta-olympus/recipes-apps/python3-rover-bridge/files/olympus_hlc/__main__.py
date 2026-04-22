@@ -61,9 +61,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--gcs-host",
-        default="127.0.0.1",
-        help="IP del GCS — destino TX de telemetría (default: 127.0.0.1). "
-             "Usar la IP WiFi del laptop del operador en campo.",
+        default="",
+        help="IP o hostname del GCS (default: vacío = aprender del primer CMD recibido). "
+             "Ej: 192.168.100.10 en campo, olympus-rover.local no aplica aquí.",
     )
     parser.add_argument(
         "--log-path",

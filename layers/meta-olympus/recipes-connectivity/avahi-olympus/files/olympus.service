@@ -1,0 +1,20 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <!-- Rover visible en la red como olympus-rover.local -->
+  <name replace-wildcards="yes">Olympus Rover</name>
+
+  <!-- Puerto CSP UDP (comandos GCS → rover) -->
+  <service>
+    <type>_olympus._udp</type>
+    <port>9000</port>
+    <txt-record>role=rover</txt-record>
+    <txt-record>tlm_port=9001</txt-record>
+  </service>
+
+  <!-- SSH para desarrollo y diagnóstico -->
+  <service>
+    <type>_ssh._tcp</type>
+    <port>22</port>
+  </service>
+</service-group>

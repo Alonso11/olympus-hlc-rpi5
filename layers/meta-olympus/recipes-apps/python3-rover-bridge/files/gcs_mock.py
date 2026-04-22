@@ -11,8 +11,14 @@ Compatible con ambas fuentes:
   LibcspGCSSource  — libcsp_py3 + csp_if_udp en el HLC (--use-libcsp)
 
 Uso:
-  python3 gcs_mock.py <RPI5_IP>           # modo CSP+CRC32 (defecto)
-  python3 gcs_mock.py <RPI5_IP> --no-csp  # modo ASCII legado
+  # Lab (mDNS — cualquier red):
+  python3 gcs_mock.py olympus-rover.local
+
+  # Field (AP hotspot del rover):
+  python3 gcs_mock.py 192.168.100.1
+
+  # Sin CSP (modo legado):
+  python3 gcs_mock.py <IP> --no-csp
 """
 
 import argparse

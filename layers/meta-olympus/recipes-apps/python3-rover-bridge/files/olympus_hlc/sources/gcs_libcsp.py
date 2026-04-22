@@ -66,7 +66,7 @@ class LibcspGCSSource(CommandSource):
     Para añadir UHF: csp.kiss_init() + actualizar rtable_load(). Sin más cambios.
     """
 
-    def __init__(self, gcs_host: str):
+    def __init__(self, gcs_host: str = ""):
         self._csp = _import_libcsp()
         csp = self._csp
 
@@ -75,12 +75,16 @@ class LibcspGCSSource(CommandSource):
         # Interfaz UDP — enlace WiFi punto-a-punto con el GCS.
         # lport: puerto donde la RPi5 escucha comandos entrantes (GCS → RPi5).
         # rport: puerto del GCS donde va la telemetría (RPi5 → GCS).
+        #
+        # gcs_host="" activa peer learning dinámico: el primer CMD recibido
+        # actualiza el TX peer automáticamente (patch 0002). No hace falta
+        # saber la IP del GCS de antemano — funciona en cualquier red.
         csp.udp_init(
-            CSP_ADDR_HLC,   # dirección CSP local
-            gcs_host,       # IP del GCS (peer TX)
+            CSP_ADDR_HLC,     # dirección CSP local
+            gcs_host,         # IP GCS: "" = aprender del primer CMD
             GCS_LISTEN_PORT,  # lport=9000 — RX comandos
             GCS_REPLY_PORT,   # rport=9001 — TX telemetría
-            True,           # is_default=True: ruta por defecto
+            True,             # is_default=True
         )
 
         csp.rtable_load("0/0 UDP")
