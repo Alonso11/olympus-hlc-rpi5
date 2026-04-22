@@ -30,11 +30,18 @@ EXTRA_OECMAKE = " \
 SOLIBS = ".so"
 FILES_SOLIBSDEV = ""
 
+# CMake builds the Python binding but has no install() rule for it —
+# copy it manually from the build dir to site-packages.
+do_install:append() {
+    install -d ${D}${PYTHON_SITEPACKAGES_DIR}
+    find ${B} -name "libcsp_py3*.so" | while read f; do
+        install -m 0755 "$f" ${D}${PYTHON_SITEPACKAGES_DIR}/
+    done
+}
+
 FILES:${PN} += " \
     ${libdir}/libcsp.so* \
-    ${libdir}/python3*/site-packages/libcsp_py3* \
-    ${libdir}/python3*/site-packages/csp* \
-    ${libdir}/python3*/site-packages/_csp* \
+    ${PYTHON_SITEPACKAGES_DIR}/libcsp_py3* \
 "
 
 FILES:${PN}-dev += " \
