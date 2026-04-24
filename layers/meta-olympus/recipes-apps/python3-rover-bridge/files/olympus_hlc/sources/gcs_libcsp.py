@@ -70,7 +70,7 @@ class LibcspGCSSource(CommandSource):
         self._csp = _import_libcsp()
         csp = self._csp
 
-        csp.init("olympus-hlc", "RPi5", "2.16")
+        csp.init("olympus-hlc", "RPi5", "2.16", 1)  # version=1: wire format 4B big-endian (5-bit addr)
 
         # Interfaz UDP — enlace WiFi punto-a-punto con el GCS.
         # lport: puerto donde la RPi5 escucha comandos entrantes (GCS → RPi5).
@@ -104,12 +104,12 @@ class LibcspGCSSource(CommandSource):
 
     def next_command(self, log=None) -> "str | None":
         csp = self._csp
-        conn = csp.accept(self._sock, timeout_ms=0)
+        conn = csp.accept(self._sock, 0)  # pycsp es METH_VARARGS — no admite kwargs
         if conn is None:
             return None
 
         dport = csp.conn_dport(conn)
-        pkt   = csp.read(conn, timeout_ms=100)
+        pkt   = csp.read(conn, 100)  # pycsp METH_VARARGS — no admite kwargs
         csp.close(conn)
 
         if pkt is None:
@@ -150,10 +150,9 @@ class LibcspGCSSource(CommandSource):
         return CommLinkMonitor()
 
     def close(self) -> None:
-        try:
-            self._csp.close(self._sock)
-        except Exception:
-            pass
+        # csp.close() es para connections, no sockets. El socket se libera
+        # automáticamente por el destructor del capsule cuando el GC lo recolecta.
+        self._sock = None
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
