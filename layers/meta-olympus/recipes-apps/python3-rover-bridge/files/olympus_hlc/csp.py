@@ -23,7 +23,7 @@ class CSPPacket:
     """
 
     PRIO_NORM  = 2
-    FLAG_CRC32 = 0b10
+    FLAG_CRC32 = 0b01  # CSP_FCRC32 = bit 0 in libcsp (NOT bit 1 which is RDP)
     MIN_SIZE   = 8   # 4B header + 0B payload + 4B CRC
 
     @staticmethod

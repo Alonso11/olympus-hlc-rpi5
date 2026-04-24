@@ -35,7 +35,7 @@ import zlib
 # ── CSP wire format (must match olympus_hlc/csp.py) ─────────────────────────
 
 PRIO_NORM  = 2
-FLAG_CRC32 = 0b10
+FLAG_CRC32 = 0b01  # CSP_FCRC32 = bit 0 in libcsp (NOT bit 1 which is RDP)
 
 CSP_ADDR_GCS = 1
 CSP_ADDR_HLC = 2
