@@ -37,7 +37,6 @@ from ..config import (
 )
 
 _CSP_PRIO_NORM = 2
-_CSP_O_NONE    = 0
 
 
 def _import_libcsp():
@@ -163,6 +162,6 @@ class LibcspGCSSource(CommandSource):
             return
         csp.packet_set_data(pkt, payload)
         try:
-            csp.sendto(_CSP_PRIO_NORM, dst, dport, 0, _CSP_O_NONE, pkt)
+            csp.sendto(_CSP_PRIO_NORM, dst, dport, 0, csp.CSP_O_CRC32, pkt)
         except Exception:
             csp.buffer_free(pkt)
