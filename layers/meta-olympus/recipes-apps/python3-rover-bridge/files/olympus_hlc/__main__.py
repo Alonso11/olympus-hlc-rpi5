@@ -15,10 +15,9 @@ import sys
 from .engine import HlcEngine
 from .logger import OlympusLogger
 from .msm import DryRunRover
-from .sources.gcs import GCSSource
+from .sources.gcs_libcsp import LibcspGCSSource
 from .sources.manual import ManualSource
 from .sources.vision import VisionSource
-from .sources.gcs_libcsp import LibcspGCSSource
 
 
 def main() -> None:
@@ -54,12 +53,6 @@ def main() -> None:
         help="Skip Arduino connection; simulate responses (testing without hardware)",
     )
     parser.add_argument(
-        "--use-libcsp",
-        action="store_true",
-        help="Use native libcsp_py3 + csp_if_udp instead of raw UDP sockets. "
-             "Requires Yocto image with CSP_IF_UDP=ON and udp_init patch.",
-    )
-    parser.add_argument(
         "--gcs-host",
         default="",
         help="IP o hostname del GCS (default: vacío = aprender del primer CMD recibido). "
@@ -92,10 +85,7 @@ def main() -> None:
     if args.mode == "manual":
         source = ManualSource()
     elif args.mode == "gcs":
-        if args.use_libcsp:
-            source = LibcspGCSSource(gcs_host=args.gcs_host)
-        else:
-            source = GCSSource()
+        source = LibcspGCSSource(gcs_host=args.gcs_host)
     else:
         source = VisionSource(args.model)
 
