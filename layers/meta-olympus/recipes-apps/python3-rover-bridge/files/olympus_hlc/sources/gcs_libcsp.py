@@ -23,7 +23,7 @@
 #   - Paquetes a CSP_ADDR_GCS_UHF (3)      → por KISS (radio)
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# Activar:  python3 -m olympus_hlc --mode gcs --use-libcsp --gcs-host <IP_GCS>
+# Activar:  python3 -m olympus_hlc --mode gcs [--gcs-host <IP_GCS>]
 # Requiere: imagen Yocto con libcsp (CSP_IF_UDP=ON + patch udp_init)
 
 import time

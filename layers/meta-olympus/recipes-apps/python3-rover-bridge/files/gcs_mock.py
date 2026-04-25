@@ -180,10 +180,10 @@ def run_tests(gcs: GCSMock) -> None:
     gcs.drain_tlm(1.0)
 
     # ── Test 4: link_lost (pausa > 10s) ──────────────────────────────────────
-    step("T4 — Silencio 12s → RPi5 debe detectar link_lost y forzar STB")
-    print("[GCS] Sin enviar comandos — esperando 12s...")
+    step("T4 — Silencio 17s → RPi5 debe detectar link_lost y enviar HB_REQ")
+    print("[GCS] Sin enviar comandos — esperando 17s (link_lost@10s + primer retry@15s)...")
     t4_hb_before = gcs._hb_count
-    gcs.drain_tlm(12.0)
+    gcs.drain_tlm(17.0)
     t4_hb_after = gcs._hb_count
     received_hb = t4_hb_after > t4_hb_before
     print(f"[{'✓' if received_hb else '✗ WARN'}] HB_REQ de reconexión recibidos: {t4_hb_after - t4_hb_before}")

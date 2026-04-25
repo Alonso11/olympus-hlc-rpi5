@@ -6,7 +6,7 @@ Tests the full stack with the real Arduino Mega (LLC v2.16).
 Parses TLM frames to verify motors, sensors, and safety state.
 
 Setup:
-  RPi5:   python3 -m olympus_hlc --mode gcs [--use-libcsp]
+  RPi5:   python3 -m olympus_hlc --mode gcs
   Laptop: python3 rover_test.py <RPI5_IP_OR_HOSTNAME>
 
   Lab:    python3 rover_test.py olympus-rover.local
@@ -267,12 +267,11 @@ def run_tests(link: RoverLink, skip_motion: bool):
         check("STB TLM received", False, "no TLM")
 
     # ── T7: Link lost → forced STB ────────────────────────────────────────────
-    step("T7 — Link lost: 12 s silence → HLC must force STB")
+    step("T7 — Link lost: 17 s silence → HLC must force STB + send HB_REQ")
     link.send("EXP:20:20")
     time.sleep(1.0)
-    print("  [GCS] Going silent for 12 s...")
-    hb_count_before = sum(1 for n, s, _ in results if "HB" in n)
-    time.sleep(12.0)
+    print("  [GCS] Going silent for 17 s (link_lost@10s, first HB_REQ@15s)...")
+    time.sleep(17.0)
     tlm = link.last_tlm(3.0)
     link.send("PING")  # restore link
     if tlm:
