@@ -114,16 +114,20 @@ class LibcspGCSSource(CommandSource):
         if pkt is None:
             return None
 
-        self._last_recv = time.monotonic()
         data = bytes(csp.packet_get_data(pkt))
         csp.buffer_free(pkt)
 
+        # Only GCS-originated packets (CMD or HB) prove the link is alive.
+        # Internal libcsp traffic (routing, CMP, etc.) must NOT reset the timer
+        # or CommLinkMonitor never detects link_lost.
         if dport == CSP_PORT_HB:
-            return None  # heartbeat — solo actualiza last_recv
-
-        if dport != CSP_PORT_CMD:
+            self._last_recv = time.monotonic()
             return None
 
+        if dport != CSP_PORT_CMD:
+            return None  # unknown port — discard, don't touch last_recv
+
+        self._last_recv = time.monotonic()
         cmd = data.decode("utf-8", errors="replace").strip()
         if log:
             log.info("COMM", f"CSP CMD (UDP node {CSP_ADDR_GCS}→{CSP_ADDR_HLC}): {cmd!r}")
