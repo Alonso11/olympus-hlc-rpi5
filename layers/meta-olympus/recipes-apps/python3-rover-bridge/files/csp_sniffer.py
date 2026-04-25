@@ -14,7 +14,6 @@ import argparse
 import select
 import socket
 import struct
-import zlib
 import time
 
 
@@ -26,71 +25,54 @@ CSP_ADDR_HLC = 2
 CSP_PORT_CMD = 11
 
 
+def _crc32c(data: bytes) -> int:
+    """CRC-32C (Castagnoli) — matches libcsp 4.x csp_crc32_append."""
+    crc = 0xFFFFFFFF
+    for b in data:
+        crc ^= b
+        for _ in range(8):
+            crc = (crc >> 1) ^ 0x82F63B78 if crc & 1 else crc >> 1
+    return crc ^ 0xFFFFFFFF
+
+
 def csp_pack_v1(src, dst, dport, sport, payload: bytes) -> bytes:
-    """CSPv1 big-endian — lo que gcs_mock.py envía."""
+    """CSPv1 big-endian with CRC-32C over payload-only — matches libcsp 4.x."""
     header = (
-        ((2    & 0x03) << 30) |
-        ((src  & 0x1F) << 25) |
-        ((dst  & 0x1F) << 20) |
+        ((2     & 0x03) << 30) |
+        ((src   & 0x1F) << 25) |
+        ((dst   & 0x1F) << 20) |
         ((dport & 0x3F) << 14) |
         ((sport & 0x3F) <<  8) |
-        0b10  # FLAG_CRC32
+        0x01  # FCRC32 flag
     )
-    raw = struct.pack(">I", header) + payload
-    return raw + struct.pack(">I", zlib.crc32(raw) & 0xFFFFFFFF)
+    hdr_bytes = struct.pack(">I", header)
+    crc = struct.pack(">I", _crc32c(payload))
+    return hdr_bytes + payload + crc
 
 
 def try_csp_parse(data: bytes, label: str):
-    """Intenta parsear como CSP con header big-endian y little-endian."""
+    """Parsea y verifica un paquete CSP (CRC-32C sobre payload-only)."""
     if len(data) < 8:
         print(f"  [{label}] Demasiado corto ({len(data)} bytes)")
         return
 
-    # Big-endian header
     hdr_be = struct.unpack(">I", data[:4])[0]
-    pri_be    = (hdr_be >> 30) & 0x03
-    src_be    = (hdr_be >> 25) & 0x1F
-    dst_be    = (hdr_be >> 20) & 0x1F
-    dport_be  = (hdr_be >> 14) & 0x3F
-    sport_be  = (hdr_be >>  8) & 0x3F
-    flags_be  = (hdr_be >>  0) & 0xFF
-    # CSP_FCRC32 = bit 0 (0x01) in libcsp 4.x — NOT bit 1 (0x02=RDP)
-    has_crc   = bool(flags_be & 0x01)
+    pri    = (hdr_be >> 30) & 0x03
+    src    = (hdr_be >> 25) & 0x1F
+    dst    = (hdr_be >> 20) & 0x1F
+    dport  = (hdr_be >> 14) & 0x3F
+    sport  = (hdr_be >>  8) & 0x3F
+    flags  = (hdr_be >>  0) & 0xFF
 
-    print(f"\n  [{label}] {len(data)} bytes raw: {data.hex()}")
-    print(f"  Header BE:  pri={pri_be} src={src_be} dst={dst_be} "
-          f"dport={dport_be} sport={sport_be} flags=0x{flags_be:02x} crc_flag={has_crc}")
+    payload  = data[4:-4]
+    crc_recv = data[-4:]
+    crc_calc = struct.pack(">I", _crc32c(payload))
+    crc_ok   = crc_recv == crc_calc
 
-    # Always try CRC verification on last 4 bytes regardless of flag
-    if len(data) >= 8:
-        raw_be = data[:-4]
-        crc_recv = data[-4:]
-        crc_val = zlib.crc32(raw_be) & 0xFFFFFFFF
-        crc_calc_be = struct.pack(">I", crc_val)
-        crc_calc_le = struct.pack("<I", crc_val)
-        if has_crc:
-            print(f"  CRC recv:      {crc_recv.hex()}")
-            print(f"  CRC calc (BE): {crc_calc_be.hex()} — {'✓ MATCH' if crc_recv == crc_calc_be else '✗ MISMATCH'}")
-            print(f"  CRC calc (LE): {crc_calc_le.hex()} — {'✓ MATCH' if crc_recv == crc_calc_le else '✗ MISMATCH'}")
-            payload = raw_be[4:]
-        else:
-            print(f"  (no CRC flag — last 4 bytes as CRC anyway for diagnosis)")
-            print(f"  CRC recv:      {crc_recv.hex()}")
-            print(f"  CRC calc (BE): {crc_calc_be.hex()} — {'✓ MATCH' if crc_recv == crc_calc_be else '✗ MISMATCH'}")
-            print(f"  CRC calc (LE): {crc_calc_le.hex()} — {'✓ MATCH' if crc_recv == crc_calc_le else '✗ MISMATCH'}")
-            payload = data[4:]
-        print(f"  Payload ({len(payload)} B): {payload[:80]!r}")
-
-    # Little-endian header (por si libcsp usa LE)
-    hdr_le = struct.unpack("<I", data[:4])[0]
-    pri_le   = (hdr_le >> 30) & 0x03
-    src_le   = (hdr_le >> 25) & 0x1F
-    dst_le   = (hdr_le >> 20) & 0x1F
-    dport_le = (hdr_le >> 14) & 0x3F
-    sport_le = (hdr_le >>  8) & 0x3F
-    flags_le = (hdr_le >>  0) & 0xFF
-    print(f"  Header LE:  pri={pri_le} src={src_le} dst={dst_le} "
-          f"dport={dport_le} sport={sport_le} flags=0x{flags_le:02x}")
+    print(f"\n  [{label}] {len(data)} bytes  crc={'✓ OK' if crc_ok else '✗ FAIL'}")
+    print(f"  Header: pri={pri} src={src} dst={dst} dport={dport} sport={sport} flags=0x{flags:02x}")
+    print(f"  CRC recv={crc_recv.hex()} calc={crc_calc.hex()}")
+    print(f"  Payload ({len(payload)} B): {payload[:100]!r}")
 
 
 def main():

@@ -30,12 +30,21 @@ import socket
 import struct
 import sys
 import time
-import zlib
 
 # ── CSP wire format (must match olympus_hlc/csp.py) ─────────────────────────
 
+def _crc32c(data: bytes) -> int:
+    """CRC-32C (Castagnoli) — matches libcsp 4.x csp_crc32_append."""
+    crc = 0xFFFFFFFF
+    for b in data:
+        crc ^= b
+        for _ in range(8):
+            crc = (crc >> 1) ^ 0x82F63B78 if crc & 1 else crc >> 1
+    return crc ^ 0xFFFFFFFF
+
+
 PRIO_NORM  = 2
-FLAG_CRC32 = 0b01  # CSP_FCRC32 = bit 0 in libcsp (NOT bit 1 which is RDP)
+FLAG_CRC32 = 0x01  # CSP_FCRC32 bit in CSPv1 (libcsp 4.x)
 
 CSP_ADDR_GCS = 1
 CSP_ADDR_HLC = 2
@@ -48,6 +57,7 @@ TLM_PORT = 9001
 
 
 def csp_pack(src, dst, dport, sport, payload: bytes) -> bytes:
+    """Wire: 4B header (BE) + payload + 4B CRC-32C (BE, over payload-only)."""
     header = (
         ((PRIO_NORM & 0x03) << 30) |
         ((src   & 0x1F) << 25) |
@@ -56,19 +66,20 @@ def csp_pack(src, dst, dport, sport, payload: bytes) -> bytes:
         ((sport & 0x3F) <<  8) |
         FLAG_CRC32
     )
-    raw = struct.pack(">I", header) + payload
-    return raw + struct.pack(">I", zlib.crc32(raw) & 0xFFFFFFFF)
+    hdr_bytes = struct.pack(">I", header)
+    crc = struct.pack(">I", _crc32c(payload))
+    return hdr_bytes + payload + crc
 
 
 def csp_unpack(data: bytes):
     if len(data) < 8:
         return None, None
-    raw, crc_recv = data[:-4], data[-4:]
-    if struct.pack(">I", zlib.crc32(raw) & 0xFFFFFFFF) != crc_recv:
+    payload  = data[4:-4]
+    crc_recv = data[-4:]
+    if struct.pack(">I", _crc32c(payload)) != crc_recv:
         return None, None
-    header  = struct.unpack(">I", raw[:4])[0]
-    payload = raw[4:]
-    dport   = (header >> 14) & 0x3F
+    header = struct.unpack(">I", data[:4])[0]
+    dport  = (header >> 14) & 0x3F
     return dport, payload
 
 
