@@ -18,6 +18,7 @@ from .msm import DryRunRover
 from .sources.gcs_libcsp import LibcspGCSSource
 from .sources.manual import ManualSource
 from .sources.vision import VisionSource
+from .sources.vision_gcs import VisionGCSSource
 
 
 def main() -> None:
@@ -26,7 +27,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=["vision", "manual", "gcs"],
+        choices=["vision", "vision-gcs", "manual", "gcs"],
         required=True,
         help="Command source: 'vision' (camera+YOLOv8n), 'manual' (stdin) "
              "or 'gcs' (UDP commands from Ground Control Station, SRS-013)",
@@ -86,6 +87,8 @@ def main() -> None:
         source = ManualSource()
     elif args.mode == "gcs":
         source = LibcspGCSSource(gcs_host=args.gcs_host)
+    elif args.mode == "vision-gcs":
+        source = VisionGCSSource(args.model, gcs_host=args.gcs_host)
     else:
         source = VisionSource(args.model)
 
