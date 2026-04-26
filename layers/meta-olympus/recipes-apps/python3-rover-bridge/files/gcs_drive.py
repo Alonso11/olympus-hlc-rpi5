@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """
-gcs_drive.py — Cliente GCS interactivo para control manual del rover Olympus.
+gcs_drive.py — Cliente GCS interactivo para control del rover Olympus.
 
-Flujo completo validado:
+Flujo completo:
   Laptop ─CSP/UDP─► RPi5:9000 ─UART─► Arduino Mega (LLC)
   Laptop ◄─CSP/UDP─ RPi5:9001 ◄─UART─ Arduino Mega (TLM)
 
 Uso:
     python3 gcs_drive.py <RPi5_IP>
     python3 gcs_drive.py 192.168.68.68
-    python3 gcs_drive.py olympus-rover.local
 
-Comandos disponibles:
+Modos HLC compatibles:
+    --mode gcs         Control manual puro (GCS dirige)
+    --mode vision-gcs  Control supervisorio (YOLO + overrides GCS)
+
+Comandos LLC directos:
     EXP:L:R      Mover (L/R = -100..100, positivo = adelante)
     STB          Detener (Standby)
     RST          Recuperar desde FAULT → STANDBY
@@ -19,13 +22,22 @@ Comandos disponibles:
     FLT          Forzar FAULT (test)
     CLB:L:R      Modo escalada
 
-Atajos:
-    w / fwd      EXP:50:50  (adelante)
+Comandos de modo supervisorio (solo --mode vision-gcs):
+    MODE:AUTO    Ceder control al YOLO (autónomo)
+    MODE:TELEOP  Tomar control manual
+
+Atajos de movimiento:
+    w / fwd      EXP:50:50   (adelante)
     s / bck      EXP:-50:-50 (atrás)
     a / left     EXP:-40:40  (giro izquierda)
     d / right    EXP:40:-40  (giro derecha)
     [espacio]    STB         (frenar)
     r            RST
+
+Atajos de modo:
+    auto         MODE:AUTO
+    teleop       MODE:TELEOP
+
     q / quit     Salir
 """
 
@@ -80,17 +92,21 @@ def csp_unpack(data: bytes):
 
 
 SHORTCUTS = {
-    "w":     "EXP:50:50",
-    "fwd":   "EXP:50:50",
-    "s":     "EXP:-50:-50",
-    "bck":   "EXP:-50:-50",
-    "a":     "EXP:-40:40",
-    "left":  "EXP:-40:40",
-    "d":     "EXP:40:-40",
-    "right": "EXP:40:-40",
-    " ":     "STB",
-    "stop":  "STB",
-    "r":     "RST",
+    # Movement
+    "w":      "EXP:50:50",
+    "fwd":    "EXP:50:50",
+    "s":      "EXP:-50:-50",
+    "bck":    "EXP:-50:-50",
+    "a":      "EXP:-40:40",
+    "left":   "EXP:-40:40",
+    "d":      "EXP:40:-40",
+    "right":  "EXP:40:-40",
+    " ":      "STB",
+    "stop":   "STB",
+    "r":      "RST",
+    # Supervisory mode (vision-gcs only)
+    "auto":   "MODE:AUTO",
+    "teleop": "MODE:TELEOP",
 }
 
 
@@ -147,8 +163,9 @@ class GCSDrive:
 
     def run(self) -> None:
         print(f"\n=== GCS Drive — {self._rpi_ip} ===")
-        print("Comandos: w/s/a/d=mover  [espacio]=stop  r=RST  q=salir")
-        print("O escribe directamente: EXP:60:60  STB  RST  FLT  CLB:30:30\n")
+        print("Movimiento : w/s/a/d=mover  [espacio]=stop  r=RST  q=salir")
+        print("Modo       : auto=MODE:AUTO  teleop=MODE:TELEOP")
+        print("Directo    : EXP:60:60  STB  RST  FLT  CLB:30:30  MODE:AUTO\n")
 
         # Enviar RST inicial para salir de FAULT
         self.send("RST")
