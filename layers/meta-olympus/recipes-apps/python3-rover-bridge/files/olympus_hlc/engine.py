@@ -137,14 +137,15 @@ class HlcEngine:
             if self._gcs_stb_forced:
                 tlm_override = "STB"
 
-        # Monitores TLM (pueden sobreescribir el STB de GCS si hay datos frescos)
+        # Monitores TLM — prioridad #1 es GCS link lost (STB); monitores no pueden
+        # sobreescribirlo porque "RET" táctica < "STB" por enlace perdido (SRS-013).
         if raw_tlm:
             monitor_override = self._process_tlm_frame(raw_tlm)
-            if monitor_override is not None:
+            if monitor_override is not None and tlm_override is None:
                 tlm_override = monitor_override
         else:
             loss_override = self._handle_tlm_loss()
-            if loss_override is not None:
+            if loss_override is not None and tlm_override is None:
                 tlm_override = loss_override
 
         return tlm_override
