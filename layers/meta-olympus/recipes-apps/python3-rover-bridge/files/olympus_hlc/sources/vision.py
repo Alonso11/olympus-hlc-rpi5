@@ -49,15 +49,22 @@ class VisionSource(CommandSource):
 
         self._mode = VISION_MODE
 
+        # Auto-detect segmentation model from filename regardless of VISION_MODE config.
+        # yolov8n-seg.onnx has 116-column output (4+80+32); _decide_bbox expects 84.
+        if self._mode == "bbox" and "seg" in model_path.lower():
+            print(f"[Vision] seg model detected in path — switching mode to segmentation")
+            self._mode = "segmentation"
+
         if self._mode == "segmentation":
             import os
-            if not os.path.exists(SEG_MODEL_PATH):
-                print(f"[Vision] WARNING: seg model not found at {SEG_MODEL_PATH} — "
+            seg_path = model_path if "seg" in model_path.lower() else SEG_MODEL_PATH
+            if not os.path.exists(seg_path):
+                print(f"[Vision] WARNING: seg model not found at {seg_path} — "
                       f"falling back to bbox mode.")
                 self._mode = "bbox"
             else:
-                print(f"[Vision] Loading segmentation model: {SEG_MODEL_PATH}")
-                self._net = self._cv2.dnn.readNetFromONNX(SEG_MODEL_PATH)
+                print(f"[Vision] Loading segmentation model: {seg_path}")
+                self._net = self._cv2.dnn.readNetFromONNX(seg_path)
                 print(f"[Vision] Seg model loaded — {len(self._net.getLayerNames())} layers")
 
         if self._mode == "bbox":
