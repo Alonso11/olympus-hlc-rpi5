@@ -149,8 +149,8 @@ VISION_CONF_MIN   = float(_cfg.get("vision_conf_min",   0.5))    # Confianza mí
 VISION_AREA_MIN   = float(_cfg.get("vision_area_min",   0.05))   # Área bbox / 640² ≥ 5 % (único filtro en bbox mode)
 ZONE_LEFT_END     = float(_cfg.get("zone_left_end",     0.33))   # 0–33 % ancho frame → AVD:R
 ZONE_RIGHT_START  = float(_cfg.get("zone_right_start",  0.67))   # 67–100 % ancho frame → AVD:L
-EXP_SPEED_L       = int  (_cfg.get("exp_speed_l",       40))
-EXP_SPEED_R       = int  (_cfg.get("exp_speed_r",       40))
+EXP_SPEED_L       = int  (_cfg.get("exp_speed_l",       25))
+EXP_SPEED_R       = int  (_cfg.get("exp_speed_r",       25))
 
 # Segmentation pipeline (GNC-REQ-002)
 VISION_MODE       = str  (_cfg.get("vision_mode",       "bbox"))

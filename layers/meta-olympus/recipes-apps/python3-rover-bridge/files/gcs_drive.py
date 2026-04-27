@@ -17,10 +17,10 @@ Modos HLC compatibles:
     --mode vision-gcs  Control supervisorio (YOLO + overrides GCS)
 
 Atajos de movimiento:
-    w / fwd      EXP:50:50   (adelante)
-    s / bck      EXP:-50:-50 (atrás)
-    a / left     EXP:-40:40  (giro izquierda)
-    d / right    EXP:40:-40  (giro derecha)
+    w / fwd      EXP:25:25   (adelante)
+    s / bck      EXP:-25:-25 (atrás)
+    a / left     EXP:-20:20  (giro izquierda)
+    d / right    EXP:20:-20  (giro derecha)
     [espacio]    STB         (frenar)
     r            RST
 
@@ -56,14 +56,14 @@ TLM_UDP_PORT  = 9001   # GCS escucha aquí (Laptop RX)
 PING_INTERVAL = 5.0
 
 SHORTCUTS = {
-    "w":      "EXP:50:50",
-    "fwd":    "EXP:50:50",
-    "s":      "EXP:-50:-50",
-    "bck":    "EXP:-50:-50",
-    "a":      "EXP:-40:40",
-    "left":   "EXP:-40:40",
-    "d":      "EXP:40:-40",
-    "right":  "EXP:40:-40",
+    "w":      "EXP:25:25",
+    "fwd":    "EXP:25:25",
+    "s":      "EXP:-25:-25",
+    "bck":    "EXP:-25:-25",
+    "a":      "EXP:-20:20",
+    "left":   "EXP:-20:20",
+    "d":      "EXP:20:-20",
+    "right":  "EXP:20:-20",
     " ":      "STB",
     "stop":   "STB",
     "r":      "RST",
