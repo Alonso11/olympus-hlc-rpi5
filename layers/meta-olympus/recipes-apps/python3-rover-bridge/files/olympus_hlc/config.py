@@ -173,12 +173,15 @@ GCS_MAX_RETRIES      = int  (_cfg.get("gcs_max_retries",      3))
 
 # ─── CSP (SRS-001, RF-006, SyRS-016) ─────────────────────────────────────────
 
-CSP_ADDR_GCS  = int (_cfg.get("csp_addr_gcs",  1))
-CSP_ADDR_HLC  = int (_cfg.get("csp_addr_hlc",  2))
-CSP_PORT_TM   = int (_cfg.get("csp_port_tm",  10))
-CSP_PORT_CMD  = int (_cfg.get("csp_port_cmd", 11))
-CSP_PORT_HB   = int (_cfg.get("csp_port_hb",   1))
-CSP_ENABLED   = bool(_cfg.get("csp_enabled", True))
+CSP_ADDR_GCS     = int (_cfg.get("csp_addr_gcs",     1))
+CSP_ADDR_HLC     = int (_cfg.get("csp_addr_hlc",     2))
+CSP_ADDR_GCS_UHF = int (_cfg.get("csp_addr_gcs_uhf", 3))  # GCS via radio UHF (KISS)
+CSP_PORT_TM      = int (_cfg.get("csp_port_tm",      10))
+CSP_PORT_CMD     = int (_cfg.get("csp_port_cmd",     11))
+CSP_PORT_HB      = int (_cfg.get("csp_port_hb",       1))
+CSP_ENABLED      = bool(_cfg.get("csp_enabled",    True))
+CSP_UHF_DEVICE   = str (_cfg.get("csp_uhf_device", "/dev/ttyTNC"))  # TNC/radio-módem UART
+CSP_UHF_BAUD     = int (_cfg.get("csp_uhf_baud",    9600))
 
 # ─── LibcspGCSSource UDP peer (ICD-CSP-001) ──────────────────────────────────
 # IP del GCS que LibcspGCSSource usa como destino TX (telemetría).
