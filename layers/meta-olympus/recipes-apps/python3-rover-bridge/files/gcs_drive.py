@@ -21,6 +21,7 @@ Atajos de movimiento:
     s / bck      EXP:-25:-25 (atrás)
     a / left     EXP:-20:20  (giro izquierda)
     d / right    EXP:20:-20  (giro derecha)
+    c            CLB:30:30   (escalada — umbrales relajados)
     [espacio]    STB         (frenar)
     r            RST
 
@@ -64,6 +65,7 @@ SHORTCUTS = {
     "left":   "EXP:-20:20",
     "d":      "EXP:20:-20",
     "right":  "EXP:20:-20",
+    "c":      "CLB:30:30",
     " ":      "STB",
     "stop":   "STB",
     "r":      "RST",
