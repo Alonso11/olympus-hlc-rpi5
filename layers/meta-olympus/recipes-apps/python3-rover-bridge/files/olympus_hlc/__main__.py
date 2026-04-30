@@ -17,6 +17,7 @@ from .logger import OlympusLogger
 from .msm import DryRunRover
 from .sources.gcs_libcsp import LibcspGCSSource
 from .sources.manual import ManualSource
+from .sources.manual_stream import ManualStreamSource
 from .sources.vision import VisionSource
 from .sources.vision_gcs import VisionGCSSource
 
@@ -64,6 +65,23 @@ def main() -> None:
         default=OlympusLogger.DEFAULT_LOG_PATH,
         help=f"Path for the HLC log file (default: {OlympusLogger.DEFAULT_LOG_PATH})",
     )
+    parser.add_argument(
+        "--stream",
+        action="store_true",
+        help="(manual mode) Habilita servidor TCP de cámara cruda para stream_view.py",
+    )
+    parser.add_argument(
+        "--stream-port",
+        type=int,
+        default=5005,
+        help="Puerto TCP del stream de cámara (default: 5005)",
+    )
+    parser.add_argument(
+        "--stream-fps",
+        type=int,
+        default=5,
+        help="Framerate del stream de cámara (default: 5)",
+    )
     args = parser.parse_args()
 
     # ── Rover connection ──────────────────────────────────────────────────────
@@ -83,7 +101,12 @@ def main() -> None:
 
     # ── Command source ────────────────────────────────────────────────────────
 
-    if args.mode == "manual":
+    if args.mode == "manual" and args.stream:
+        source = ManualStreamSource(
+            stream_port=args.stream_port,
+            fps=args.stream_fps,
+        )
+    elif args.mode == "manual":
         source = ManualSource()
     elif args.mode == "gcs":
         source = LibcspGCSSource(gcs_host=args.gcs_host)
