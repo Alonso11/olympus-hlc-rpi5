@@ -575,7 +575,9 @@ class TestHlcEngine:
         """Con batería crítica el engine debe mandar STB aunque la fuente pida EXP."""
         rover  = _LimitedRover(TLM_CRITICAL_BATT, max_cycles=3)
         source = _NullSource("EXP:40:40")
-        engine = HlcEngine(rover, source, "manual",
+        # mode="station": ejercita el cascade de seguridad. "manual" es modo
+        # banco de caracterización y NO aplica overrides (ver TestManualBench).
+        engine = HlcEngine(rover, source, "station",
                            log_path=str(tmp_path / "hlc.log"))
         engine.run()
         # Si SafeMode no funcionara, EXP:40:40 llegaría al rover y
@@ -586,7 +588,7 @@ class TestHlcEngine:
         """Con dist_mm < 300mm el engine debe mandar RET."""
         rover  = _LimitedRover(TLM_CLOSE, max_cycles=2)
         source = _NullSource("EXP:40:40")
-        engine = HlcEngine(rover, source, "manual",
+        engine = HlcEngine(rover, source, "station",
                            log_path=str(tmp_path / "hlc.log"))
         engine.run()
         assert engine._msm.state == RoverState.RETREAT
@@ -609,7 +611,7 @@ class TestHlcEngine:
 
         rover  = _LimitedRover(TLM_CRITICAL_BATT, max_cycles=2)
         source = _NullSource("STB")
-        engine = HlcEngine(rover, source, "manual",
+        engine = HlcEngine(rover, source, "station",
                            log_path=str(tmp_path / "hlc.log"))
         engine.run()
 
@@ -627,11 +629,70 @@ class TestHlcEngine:
         for tlm in (TLM_LLC_FAULT, TLM_HOT):
             rover  = _LimitedRover(tlm, max_cycles=2)
             source = _NullSource("STB")
-            engine = HlcEngine(rover, source, "manual",
+            engine = HlcEngine(rover, source, "station",
                                log_path=str(tmp_path / "hlc.log"))
             engine.run()
             assert engine._poweroff_at == 0.0, \
                 f"poweroff NO debe programarse para tlm={tlm[:40]}..."
+
+
+class TestManualBench:
+    """
+    Modo manual = banco de caracterización (operador en el lazo).
+
+    El HLC debe registrar TLM (encoders/corrientes) pero NUNCA inyectar
+    overrides autónomos (RET por obstáculo/slip, STB por SafeMode o por
+    pérdida de TLM). El operador maneja el rover directamente; la única
+    protección activa es la MSM del firmware.
+    """
+
+    def test_manual_does_not_retreat_on_close_obstacle(self, tmp_path):
+        """En 'station' un obstáculo cercano fuerza RET; en 'manual' NO."""
+        rover  = _LimitedRover(TLM_CLOSE, max_cycles=3)
+        source = _NullSource("EXP:40:40")
+        engine = HlcEngine(rover, source, "manual",
+                           log_path=str(tmp_path / "hlc.log"))
+        engine.run()
+        # El comando del operador llega al rover: queda en EXPLORE, no RETREAT.
+        assert engine._msm.state == RoverState.EXPLORE
+
+    def test_manual_does_not_safe_mode_on_critical_battery(self, tmp_path):
+        """Batería crítica NO debe bloquear el movimiento en modo banco."""
+        rover  = _LimitedRover(TLM_CRITICAL_BATT, max_cycles=3)
+        source = _NullSource("EXP:40:40")
+        engine = HlcEngine(rover, source, "manual",
+                           log_path=str(tmp_path / "hlc.log"))
+        engine.run()
+        assert engine._msm.state == RoverState.EXPLORE
+        assert engine._poweroff_at == 0.0, \
+            "modo banco no debe programar poweroff"
+
+    def test_bench_flag_disables_overrides_in_station_mode(self, tmp_path):
+        """--bench (bench=True) hace que 'station' no aplique overrides: la GUI maneja libre."""
+        rover  = _LimitedRover(TLM_CLOSE, max_cycles=3)
+        source = _NullSource("EXP:40:40")
+        engine = HlcEngine(rover, source, "station",
+                           log_path=str(tmp_path / "hlc.log"), bench=True)
+        engine.run()
+        assert engine._msm.state == RoverState.EXPLORE
+
+    def test_station_without_bench_still_overrides(self, tmp_path):
+        """Sin --bench, 'station' conserva el retreat por obstáculo (operación normal)."""
+        rover  = _LimitedRover(TLM_CLOSE, max_cycles=3)
+        source = _NullSource("EXP:40:40")
+        engine = HlcEngine(rover, source, "station",
+                           log_path=str(tmp_path / "hlc.log"))
+        engine.run()
+        assert engine._msm.state == RoverState.RETREAT
+
+    def test_manual_logs_telemetry_and_odometry(self, tmp_path):
+        """El modo banco debe seguir registrando TLM y actualizando odometría."""
+        log = tmp_path / "hlc.log"
+        rover  = _LimitedRover(TLM_NORMAL, max_cycles=3)
+        source = _NullSource("EXP:40:40")
+        engine = HlcEngine(rover, source, "manual", log_path=str(log))
+        engine.run()
+        assert "TLM" in log.read_text(), "el TLM debe quedar en el log para evidencia"
 
 
 # ─── OdometryTracker ─────────────────────────────────────────────────────────

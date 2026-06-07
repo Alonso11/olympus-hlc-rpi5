@@ -82,6 +82,7 @@ class VisionSource(CommandSource):
                 "--output", "-",
                 "--width",  str(FRAME_WIDTH),
                 "--height", str(FRAME_HEIGHT),
+                "--rotation", "180",
                 "--timeout", "1000",
                 "--nopreview",
                 "--encoding", "jpg",
@@ -101,15 +102,28 @@ class VisionSource(CommandSource):
         if frame is None:
             print("[Vision] Frame capture failed.")
             return None
+        cmd, _dets = self.infer(frame)
+        return cmd
 
+    def infer(self, frame) -> "tuple[str, list]":
+        """
+        Punto único de decisión YOLO reutilizable: retorna (comando_MSM, dets).
+        `dets` es una lista de cajas normalizadas (x1, y1, x2, y2, conf) en [0,1]
+        para que la GUI dibuje el overlay (StationSource las reenvía como DET:).
+        En modo segmentación no se exponen cajas → dets vacío.
+        """
         if self._mode == "segmentation":
-            return self._decide_seg(frame)
+            return (self._decide_seg(frame), [])
         return self._decide_bbox(frame)
 
     # ── Bbox mode ─────────────────────────────────────────────────────────────
 
-    def _decide_bbox(self, frame) -> str:
-        """YOLOv8n bbox: selecciona la detección más grande y mapea su cx a zona."""
+    def _decide_bbox(self, frame) -> "tuple[str, list]":
+        """YOLOv8n bbox: selecciona la detección más grande y mapea su cx a zona.
+
+        Retorna (comando, dets) — dets son todas las cajas sobre umbral, para el
+        overlay de la GUI; el comando se decide por el centro de la caja mayor.
+        """
         cv2 = self._cv2
         np  = self._np
 
@@ -122,6 +136,7 @@ class VisionSource(CommandSource):
 
         best_area = 0.0
         best_cx   = None
+        dets: list = []
 
         for pred in predictions:
             scores     = pred[4:]
@@ -131,26 +146,35 @@ class VisionSource(CommandSource):
             if confidence < VISION_CONF_MIN:
                 continue
 
-            cx_norm, _, w_norm, h_norm = pred[:4]
+            cx_norm, cy_norm, w_norm, h_norm = pred[:4]
             cx        = cx_norm / 640.0
             area_frac = (w_norm / 640.0) * (h_norm / 640.0)
 
             if area_frac < VISION_AREA_MIN:
                 continue
 
+            # Caja normalizada (esquinas) para el overlay de la GUI.
+            dets.append((
+                (cx_norm - w_norm / 2) / 640.0,
+                (cy_norm - h_norm / 2) / 640.0,
+                (cx_norm + w_norm / 2) / 640.0,
+                (cy_norm + h_norm / 2) / 640.0,
+                confidence,
+            ))
+
             if area_frac > best_area:
                 best_area = area_frac
                 best_cx   = cx
 
         if best_cx is None:
-            return f"EXP:{EXP_SPEED_L}:{EXP_SPEED_R}"
+            return (f"EXP:{EXP_SPEED_L}:{EXP_SPEED_R}", dets)
 
         if best_cx < ZONE_LEFT_END:
-            return "AVD:R"
+            return ("AVD:R", dets)
         elif best_cx > ZONE_RIGHT_START:
-            return "AVD:L"
+            return ("AVD:L", dets)
         else:
-            return "RET"
+            return ("RET", dets)
 
     # ── Segmentation mode (GNC-REQ-002) ──────────────────────────────────────
 
