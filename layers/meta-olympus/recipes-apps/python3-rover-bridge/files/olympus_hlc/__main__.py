@@ -18,6 +18,7 @@ from .msm import DryRunRover
 from .sources.gcs_libcsp import LibcspGCSSource
 from .sources.manual import ManualSource
 from .sources.manual_stream import ManualStreamSource
+from .sources.station import StationSource
 from .sources.vision import VisionSource
 from .sources.vision_gcs import VisionGCSSource
 
@@ -28,10 +29,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=["vision", "vision-gcs", "manual", "gcs"],
+        choices=["vision", "vision-gcs", "manual", "gcs", "station"],
         required=True,
-        help="Command source: 'vision' (camera+YOLOv8n), 'manual' (stdin) "
-             "or 'gcs' (UDP commands from Ground Control Station, SRS-013)",
+        help="Command source: 'vision' (camera+YOLOv8n), 'manual' (stdin), "
+             "'gcs' (UDP+CSP desde GCS, SRS-013), o 'station' (GUI por TCP — "
+             "consolidación A: reemplaza el daemon ground_station/olympus_station.py)",
     )
     parser.add_argument(
         "--model",
@@ -53,6 +55,15 @@ def main() -> None:
         "--dry-run",
         action="store_true",
         help="Skip Arduino connection; simulate responses (testing without hardware)",
+    )
+    parser.add_argument(
+        "--bench",
+        action="store_true",
+        help="Banco de caracterización: registra TLM pero DESACTIVA los overrides "
+             "autónomos del HLC (RET/STB por TLM-loss, retreat, slip, SafeMode, "
+             "monitor de enlace GCS). Permite manejar desde la GUI (--mode station) "
+             "sin que el watchdog pise los comandos. Solo pruebas, nunca en campo. "
+             "(En --mode manual el banco ya está siempre activo.)",
     )
     parser.add_argument(
         "--gcs-host",
@@ -110,6 +121,10 @@ def main() -> None:
         source = ManualSource()
     elif args.mode == "gcs":
         source = LibcspGCSSource(gcs_host=args.gcs_host)
+    elif args.mode == "station":
+        # Puertos fijos 5006 (control) / 5005 (video) — mismo contrato que la GUI.
+        # --model habilita AUTO (YOLO a bordo); si no existe, opera solo MANUAL.
+        source = StationSource(model_path=args.model)
     elif args.mode == "vision-gcs":
         source = VisionGCSSource(args.model, gcs_host=args.gcs_host)
     else:
@@ -117,7 +132,8 @@ def main() -> None:
 
     # ── Run ───────────────────────────────────────────────────────────────────
 
-    engine = HlcEngine(rover, source, args.mode, log_path=args.log_path)
+    engine = HlcEngine(rover, source, args.mode, log_path=args.log_path,
+                       bench=args.bench)
     try:
         engine.run()
     finally:

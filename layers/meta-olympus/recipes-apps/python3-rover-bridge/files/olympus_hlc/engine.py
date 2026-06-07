@@ -41,11 +41,23 @@ class HlcEngine:
     """
 
     def __init__(self, rover, source: CommandSource, mode: str,
-                 log_path: str = OlympusLogger.DEFAULT_LOG_PATH):
+                 log_path: str = OlympusLogger.DEFAULT_LOG_PATH,
+                 bench: bool = False):
         self._rover  = rover
         self._source = source
         self._mode   = mode
         self._log    = OlympusLogger(log_path)
+
+        # Banco de caracterización: el HLC lee y registra la telemetría
+        # (encoders/corrientes para medir) pero NUNCA inyecta overrides
+        # autónomos (RET/STB por TLM-loss, retreat táctico, slip, SafeMode,
+        # ni STB del monitor de enlace GCS). El operador maneja el rover
+        # directamente; la MSM del firmware sigue protegiendo el hardware.
+        # Se activa siempre en modo manual, o con --bench en cualquier modo
+        # (p.ej. 'station' para manejar desde la GUI sin que el watchdog
+        # pise los comandos). Esto DESACTIVA las protecciones autónomas del
+        # HLC — usar solo para pruebas/caracterización, nunca en campo.
+        self._manual_bench = (mode == "manual") or bench
 
         # MSM y monitores
         self._msm         = RoverMSM()
@@ -63,6 +75,7 @@ class HlcEngine:
         self._last_tlm_time  = time.monotonic()
         self._last_tlm_ts    = time.monotonic()
         self._tlm_loss_level = 0   # 0=ok  1=warn  2=retreat  3=stb
+        self._override_reason: "str | None" = None  # razón del último override (→GUI)
 
         # Storage check
         self._cycle_count        = 0
@@ -82,6 +95,12 @@ class HlcEngine:
 
     def run(self) -> None:
         self._log.info("CTRL", f"Starting in {self._mode.upper()} mode")
+        if self._manual_bench and self._mode != "manual":
+            self._log.warn(
+                "CTRL",
+                f"BANCO DE CARACTERIZACIÓN ({self._mode}) — overrides autónomos "
+                f"del HLC DESACTIVADOS (RET/STB/SafeMode/enlace). Solo pruebas."
+            )
         try:
             while True:
                 # Power management: apagar OS si la batería activó SafeMode (SYS-FUN-040)
@@ -90,7 +109,13 @@ class HlcEngine:
 
                 cycle_start  = time.monotonic()
                 tlm_override = self._tick_telemetry()
-                cmd = tlm_override or self._source.next_command(self._log)
+                if tlm_override is not None:
+                    cmd    = tlm_override
+                    reason = self._override_reason or f"override HLC → {tlm_override}"
+                else:
+                    cmd    = self._source.next_command(self._log)
+                    reason = None
+                self._override_reason = None
 
                 # Vision: error de cámara → STB seguro
                 if cmd is None and self._mode == "vision":
@@ -99,6 +124,9 @@ class HlcEngine:
 
                 if cmd is not None:
                     self._dispatch(cmd)
+                    # Eco del comando REAL (con override) + razón a la fuente/GUI
+                    # (evidencia). No-op salvo en StationSource.
+                    self._source.on_dispatch(cmd, reason)
 
                 self._keepalive()
 
@@ -127,6 +155,16 @@ class HlcEngine:
         if raw_tlm:
             self._source.on_tlm(raw_tlm)  # GCSSource reenvía; otros no hacen nada
 
+        # Banco de caracterización (modo manual): registrar TLM para medir
+        # encoders/corrientes, pero sin ningún override autónomo. El operador
+        # tiene control total — no hay RET/STB inyectado por el HLC.
+        # Nivel MANUAL (selector de la GUI) = control total del operador: sin
+        # ningún override autónomo del HLC, igual que el banco de caracterización.
+        if self._manual_bench or self._source.safety_level == "MANUAL":
+            if raw_tlm:
+                self._log_tlm_passive(raw_tlm)
+            return None
+
         # CommLink — solo activo cuando la fuente tiene monitor (GCSSource)
         if self._comm_link is not None:
             now        = time.monotonic()
@@ -134,6 +172,13 @@ class HlcEngine:
                 self._source.last_recv_time, now, self._source
             )
             self._handle_link_event(link_event)
+            # Robustez: si el enlace está vivo de nuevo (monitor en COMUNICAR),
+            # levantar el STB forzado aunque no se haya emitido el evento de
+            # recuperación en este ciclo (p.ej. un cliente nuevo que refresca
+            # last_recv tras un período idle que latcheó max_retries_exceeded).
+            # Sin esto, el station queda pegado en STB y nunca despacha EXP.
+            if self._gcs_stb_forced and not self._comm_link.is_lost:
+                self._gcs_stb_forced = False
             if self._gcs_stb_forced:
                 tlm_override = "STB"
 
@@ -149,6 +194,21 @@ class HlcEngine:
                 tlm_override = loss_override
 
         return tlm_override
+
+    def _log_tlm_passive(self, raw_tlm: str) -> None:
+        """
+        Registra TLM y odometría SIN activar monitores ni overrides.
+        Usado en modo manual (caracterización): conserva la evidencia de
+        encoders/corrientes en el log y la odometría, pero el HLC no toma
+        ninguna decisión autónoma sobre el movimiento.
+        """
+        self._last_tlm_time = time.monotonic()
+        tlm = TlmFrame.parse(raw_tlm)
+        if tlm is None:
+            return
+        self._log.log_tlm(tlm)
+        self._tracker.record(tlm, self._msm.state)
+        self._odometry.update(tlm.enc_left, tlm.enc_right)
 
     def _handle_link_event(self, event: "str | None") -> None:
         """Loguea y actúa sobre eventos del CommLinkMonitor."""
@@ -255,13 +315,19 @@ class HlcEngine:
                 _send(self._rover, "BNK:0", self._log)
                 self._bank_mode = BankMode.ALL_OFF
                 self._log.warn("EPS", "BNK:0 enviado — relay: ambos bancos OFF")
+                self._override_reason = f"SafeMode: {self._safe_mode.reason}"
                 return "SAFE"
             self._slip.reset()
             return None  # Safe Mode ya activo: engine solo envía PING keepalive
 
         # En CLIMB el terreno inclinado queda a < 300 mm del sensor frontal —
         # suprimir el retreat táctico para evitar falsos positivos (CLB_TOF=50mm).
-        if self._msm.state != RoverState.CLIMB and self._tracker.should_retreat(tlm):
+        # Retreat y slip son RET PROACTIVOS (mueven el rover solo): solo en nivel
+        # PLENA. En ASISTIDA el operador no quiere retrocesos sorpresa; SafeMode y
+        # link-loss (arriba/abajo) sí se mantienen.
+        full = self._source.safety_level == "FULL"
+
+        if full and self._msm.state != RoverState.CLIMB and self._tracker.should_retreat(tlm):
             wp = self._tracker.last_safe()
             wp_info = (f"last_safe tick={wp.tick_ms}ms dist={wp.dist_mm}mm"
                        if wp else "no waypoint previo")
@@ -270,15 +336,19 @@ class HlcEngine:
                 f"obstáculo táctico a {tlm.dist_mm} mm "
                 f"(< {RETREAT_DIST_MM} mm) — forzando RET [{wp_info}]"
             )
+            self._override_reason = (
+                f"retreat: obstáculo a {tlm.dist_mm} mm (< {RETREAT_DIST_MM} mm)")
             self._slip.reset()
             return "RET"
 
-        if self._slip.update(tlm, self._msm.state):
+        if full and self._slip.update(tlm, self._msm.state):
             self._log.warn(
                 "NAV",
                 f"slip detectado — stall_mask={tlm.stall_mask:06b} "
                 f"durante {self._slip.stall_count} frames TLM — forzando RET (RF-004)"
             )
+            self._override_reason = (
+                f"slip: stall_mask={tlm.stall_mask:06b} ({self._slip.stall_count} frames)")
             return "RET"
 
         return None
@@ -298,9 +368,12 @@ class HlcEngine:
                     f"forzando STB definitivo (COMM-REQ-005)"
                 )
                 self._tlm_loss_level = 3
+            self._override_reason = f"link-loss: sin TLM >{TLM_STB_S:.0f}s → STB"
             return "STB"
 
-        if silent_s > TLM_RETREAT_S:
+        # El RET por TLM-loss (retroceder al último waypoint) es proactivo → solo
+        # en PLENA. En ASISTIDA el STB de arriba sigue protegiendo, sin retroceso.
+        if self._source.safety_level == "FULL" and silent_s > TLM_RETREAT_S:
             if self._tlm_loss_level < 2:
                 wp = self._tracker.last_safe()
                 self._log.warn(
@@ -309,6 +382,7 @@ class HlcEngine:
                     f"RET al último waypoint seguro {wp} (SYS-FUN-021)"
                 )
                 self._tlm_loss_level = 2
+            self._override_reason = f"link-loss: sin TLM >{TLM_RETREAT_S:.0f}s → RET waypoint"
             return "RET"
 
         if silent_s > TLM_WARN_S:
@@ -330,7 +404,7 @@ class HlcEngine:
             )
             return
 
-        if self._msm.blocks_command(cmd):
+        if self._msm.blocks_command(cmd) and not self._manual_bench:
             self._log.warn("CMD", f"{cmd:<16} → BLOCKED (rover in FAULT, send RST)")
             return
 

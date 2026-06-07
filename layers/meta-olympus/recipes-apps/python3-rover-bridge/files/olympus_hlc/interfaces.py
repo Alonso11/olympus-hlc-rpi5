@@ -56,6 +56,28 @@ class CommandSource(abc.ABC):
         """
         return None
 
+    @property
+    def safety_level(self) -> str:
+        """
+        Nivel de seguridad seleccionado por el operador (gobierna qué overrides
+        autónomos del HLC aplican). El engine lo lee cada ciclo.
+          "FULL"   — todos los overrides (retreat/slip/SafeMode/link-loss). Default.
+          "ASSIST" — sin RET proactivos (retreat/slip); mantiene SafeMode y
+                     link-loss→STB + la MSM del firmware.
+          "MANUAL" — sin overrides del HLC (control total del operador).
+        Solo StationSource lo expone configurable; el resto queda en FULL.
+        """
+        return "FULL"
+
+    def on_dispatch(self, cmd: "str | None", reason: "str | None" = None) -> None:  # noqa: ARG002
+        """
+        Llamado por el engine con el comando FINAL despachado al Mega (ya con
+        overrides aplicados) y la razón si fue un override. StationSource lo usa
+        para reflejar el comando real + el evento en la GUI (evidencia). El resto
+        de fuentes no hace nada.
+        """
+        pass
+
     def close(self) -> None:
         """
         Libera recursos asociados a esta fuente (sockets, procesos, handles).
