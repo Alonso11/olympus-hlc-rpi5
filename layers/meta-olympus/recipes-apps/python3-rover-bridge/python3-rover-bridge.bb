@@ -10,6 +10,7 @@ SRC_URI = "file://rover-bridge/ \
            file://test_ultrasonic_rpi.py \
            file://test_opencv_camera.py \
            file://olympus_controller.py \
+           file://oled_status.py \
            file://olympus_hlc/ \
            file://test_smoke.py \
            file://debug_vision.py \
@@ -61,6 +62,7 @@ do_install() {
     install -m 0755 ${WORKDIR}/test_opencv_camera.py ${D}${bindir}/test_opencv_camera.py
     install -m 0755 ${WORKDIR}/olympus_controller.py ${D}${bindir}/olympus_controller.py
     install -m 0755 ${WORKDIR}/debug_vision.py ${D}${bindir}/debug_vision.py
+    install -m 0755 ${WORKDIR}/oled_status.py ${D}${bindir}/oled_status.py
 
     # Instalar el paquete olympus_hlc (refactorización SOLID, v3.0)
     install -d ${D}${PYTHON_SITEPACKAGES_DIR}/olympus_hlc/sources
@@ -87,6 +89,7 @@ FILES:${PN} += "${PYTHON_SITEPACKAGES_DIR}/rover_bridge.so \
                 ${bindir}/test_ultrasonic_rpi.py \
                 ${bindir}/test_opencv_camera.py \
                 ${bindir}/olympus_controller.py \
+                ${bindir}/oled_status.py \
                 ${bindir}/olympus_hlc \
                 ${datadir}/olympus/models/yolov8n.onnx \
                 ${datadir}/olympus/models/yolov8n-seg.onnx \

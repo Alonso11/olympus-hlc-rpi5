@@ -4,6 +4,11 @@
 # RPI_EXTRA_CONFIG must be set here (rpi-config scope), not in the image recipe.
 RPI_EXTRA_CONFIG += "dtoverlay=ov5647,cam1"
 
+# --- I2C bus 1 (GPIO2=SDA, GPIO3=SCL, pines 3/5 del header de 40 pines) ---
+# Necesario para el display OLED SSD1306 (dir 0x3C) del rover.
+# dtparam=i2c_arm=on activa /dev/i2c-1 en el BCM2712 (RPi5).
+RPI_EXTRA_CONFIG += "dtparam=i2c_arm=on"
+
 # meta-raspberrypi appends camera_auto_detect=1 via its own RPI_EXTRA_CONFIG
 # after ours, overriding our setting. We strip all occurrences in do_install
 # and append camera_auto_detect=0 last so it is the definitive value.
