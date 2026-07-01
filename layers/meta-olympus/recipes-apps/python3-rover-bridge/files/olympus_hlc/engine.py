@@ -24,6 +24,7 @@ from .monitors import (
 )
 from .msm import RoverMSM, _send
 from .odometry import OdometryTracker
+from .slam import SemanticSLAM
 
 
 class HlcEngine:
@@ -67,6 +68,10 @@ class HlcEngine:
         self._thermal     = ThermalMonitor()
         self._safe_mode   = SafeMode()
         self._odometry    = OdometryTracker()
+
+        # SLAM semantico (solo modo vision-nav — integra mascaras de segmentacion
+        # lunar al mapa de ocupacion usando la pose de OdometryTracker).
+        self._slam = SemanticSLAM() if mode == "vision-nav" else None
         self._prev_energy  = EnergyLevel.OK
         self._prev_thermal = ThermalLevel.OK
 
@@ -127,6 +132,16 @@ class HlcEngine:
                     # Eco del comando REAL (con override) + razón a la fuente/GUI
                     # (evidencia). No-op salvo en StationSource.
                     self._source.on_dispatch(cmd, reason)
+
+                # SLAM: integrar mascara de segmentacion al mapa de ocupacion
+                # usando la pose actual de OdometryTracker (encoders).
+                if self._slam is not None and hasattr(self._source, 'last_class_mask'):
+                    class_mask = self._source.last_class_mask
+                    if class_mask is not None:
+                        x_mm, y_mm, theta = self._odometry.pose()
+                        self._slam.integrate_observation(
+                            class_mask, x_mm / 1000.0, y_mm / 1000.0, theta
+                        )
 
                 self._keepalive()
 

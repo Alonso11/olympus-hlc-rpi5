@@ -273,3 +273,19 @@ lunar_use_trapezoid: true
 # Más anchas que YOLO (0.33/0.67) porque el modelo lunar prioriza el centro.
 lunar_zone_left_end: 0.40
 lunar_zone_right_start: 0.60
+
+# ─── SLAM semantico (modo --mode vision-nav) ────────────────────────────────
+#
+# Mapa de ocupacion semantico grid-based que integra mascaras de segmentacion
+# lunar proyectadas a coordenadas mundo. Adaptado del TFG de Carlos Alfaro.
+#
+# La pose del rover se obtiene de OdometryTracker (encoders, TLM v1.1).
+# Cuando el EKF (TLM v1.2) este integrado, solo se cambia la fuente de pose
+# en el engine — el SLAM no necesita modificaciones (diseno pluggable).
+#
+# CELL_M: tamano de celda en metros. 0.5m es suficiente para navegacion lunar.
+# MAP_W_M / MAP_H_M: dimensiones iniciales del mapa en metros. La grid se
+#   expande dinamicamente si el rover se acerca al borde.
+slam_cell_m: 0.5
+slam_map_w_m: 40.0
+slam_map_h_m: 40.0

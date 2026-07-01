@@ -90,6 +90,15 @@ class VisionNavSource(CommandSource):
               f"Output: [1,5,{LUNAR_MODEL_H},{LUNAR_MODEL_W}]")
         print(f"[VisionNav] Camera ready (rpicam-still per-frame).")
 
+        # Ultima mascara de clases (para SLAM — el engine la lee despues de
+        # next_command() y la pasa a SemanticSLAM.integrate_observation()).
+        self._last_class_mask = None
+
+    @property
+    def last_class_mask(self):
+        """Mascara de clases [H, W] uint8 del ultimo frame inferido (para SLAM)."""
+        return self._last_class_mask
+
     def _capture_frame(self):
         """Captura un JPEG via rpicam-still --output -. Retorna ndarray BGR o None."""
         result = self._subprocess.run(
@@ -270,6 +279,9 @@ class VisionNavSource(CommandSource):
         class_mask_full = cv2.resize(
             class_mask, (W, H), interpolation=cv2.INTER_NEAREST
         )
+
+        # Guardar mascara de clases para SLAM (el engine la lee via property)
+        self._last_class_mask = class_mask_full
 
         # Mascara binaria navegable
         nav_mask = self._create_nav_mask(class_mask_full)
