@@ -18,7 +18,6 @@ IMAGE_INSTALL:append = " \
     custom-udev-rules \
     resize-rootfs \
     wifi-config \
-    wifi-power-save \
     packagegroup-core-boot \
     kernel-modules \
     kernel-module-cdc-acm \

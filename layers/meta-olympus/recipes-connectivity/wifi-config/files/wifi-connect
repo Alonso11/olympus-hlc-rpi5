@@ -1,0 +1,143 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          wifi-connect
+# Required-Start:    $network $remote_fs
+# Required-Stop:     $network $remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: WiFi client with AP fallback
+# Description:       Tries to connect as WiFi client (estudiantes.ie);
+#                    if no IP in 15 s, falls back to AP (Olympus-Rover).
+### END INIT INFO
+
+# ─── Configuracion ──────────────────────────────────────────────────────────
+WPA_CONF=/etc/wpa_supplicant.conf
+IFACE=wlan0
+CLIENT_TIMEOUT=15
+AP_IP=192.168.100.1
+HOSTAPD_CONF=/etc/hostapd/hostapd.conf
+DNSMASQ_AP_CONF=/etc/dnsmasq-ap.conf
+PID_HOSTAPD=/run/hostapd.pid
+PID_DNSMASQ_AP=/run/dnsmasq-ap.pid
+
+. /etc/init.d/functions 2>/dev/null || true
+
+# ─── Helpers ────────────────────────────────────────────────────────────────
+has_ipv4() {
+    ip -4 addr show "$IFACE" 2>/dev/null | grep -q 'inet '
+}
+
+kill_pidfile() {
+    local pf="$1"
+    if [ -f "$pf" ]; then
+        kill "$(cat "$pf")" 2>/dev/null
+        rm -f "$pf"
+    fi
+}
+
+stop_daemons() {
+    killall wpa_supplicant 2>/dev/null || true
+    kill_pidfile "$PID_HOSTAPD"
+    kill_pidfile "$PID_DNSMASQ_AP"
+    killall hostapd     2>/dev/null || true
+    killall dnsmasq     2>/dev/null || true
+    sleep 1
+}
+
+reset_iface() {
+    ip link set "$IFACE" down 2>/dev/null || true
+    ip addr flush dev "$IFACE" 2>/dev/null || true
+    sleep 1
+    ip link set "$IFACE" up 2>/dev/null || true
+}
+
+# ─── Modo CLIENTE ───────────────────────────────────────────────────────────
+start_client() {
+    echo "[wifi-connect] Modo CLIENTE — intentando conectar via $WPA_CONF"
+    iw dev "$IFACE" set type station 2>/dev/null || true
+    ip link set "$IFACE" up 2>/dev/null || true
+    wpa_supplicant -B -i "$IFACE" -c "$WPA_CONF"
+    sleep 2
+    udhcpc -i "$IFACE" -t 5 -n -q 2>/dev/null || true
+}
+
+# ─── Modo AP (fallback) ────────────────────────────────────────────────────
+start_ap() {
+    echo "[wifi-connect] Sin IP en ${CLIENT_TIMEOUT}s — activando AP Olympus-Rover"
+    killall wpa_supplicant 2>/dev/null || true
+    sleep 1
+    ip addr flush dev "$IFACE" 2>/dev/null || true
+    ip link set "$IFACE" up 2>/dev/null || true
+    ip addr add ${AP_IP}/24 dev "$IFACE"
+
+    hostapd -B -P "$PID_HOSTAPD" "$HOSTAPD_CONF"
+    sleep 1
+    dnsmasq --conf-file="$DNSMASQ_AP_CONF" --pid-file="$PID_DNSMASQ_AP"
+}
+
+# ─── Comandos ───────────────────────────────────────────────────────────────
+case "$1" in
+
+  start)
+    stop_daemons
+    reset_iface
+    start_client
+
+    # Esperar hasta CLIENT_TIMEOUT segundos por una IP IPv4
+    elapsed=0
+    while [ $elapsed -lt $CLIENT_TIMEOUT ]; do
+        if has_ipv4; then
+            IP=$(ip -4 addr show "$IFACE" | awk '/inet / {split($2,a,"/"); print a[1]; exit}')
+            echo "[wifi-connect] Conectado como cliente — IP: $IP"
+            iw dev "$IFACE" set power_save on 2>/dev/null || true
+            exit 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    # Sin IP → fallback AP
+    start_ap
+    echo "[wifi-connect] AP activo — SSID: Olympus-Rover  IP: $AP_IP"
+    ;;
+
+  stop)
+    echo "[wifi-connect] Deteniendo WiFi"
+    stop_daemons
+    ip addr flush dev "$IFACE" 2>/dev/null || true
+    ;;
+
+  restart)
+    "$0" stop
+    sleep 2
+    "$0" start
+    ;;
+
+  ap)
+    echo "[wifi-connect] Forzando modo AP"
+    stop_daemons
+    reset_iface
+    start_ap
+    echo "[wifi-connect] AP activo — SSID: Olympus-Rover  IP: $AP_IP"
+    ;;
+
+  status)
+    if has_ipv4; then
+        IP=$(ip -4 addr show "$IFACE" | awk '/inet / {split($2,a,"/"); print a[1]; exit}')
+        if pgrep -x hostapd >/dev/null 2>&1; then
+            echo "FIELD — AP activo (Olympus-Rover / $IP)"
+        else
+            echo "LAB — WiFi cliente activo (IP: $IP)"
+        fi
+    else
+        echo "SIN CONEXION — sin IP en $IFACE"
+    fi
+    ;;
+
+  *)
+    echo "Uso: $0 {start|stop|restart|ap|status}"
+    exit 1
+    ;;
+esac
+
+exit 0

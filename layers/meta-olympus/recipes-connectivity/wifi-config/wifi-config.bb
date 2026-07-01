@@ -1,26 +1,32 @@
-SUMMARY = "Configuración automática de WiFi para Olympus Image"
+# Version: v2.0
+SUMMARY = "WiFi client with AP fallback for Olympus Rover (sysvinit)"
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
-SRC_URI = "file://wpa_supplicant-wlan0.conf"
+SRC_URI = "file://wpa_supplicant.conf \
+           file://wifi-connect"
 
 S = "${WORKDIR}"
 
-inherit systemd
+# sysvinit: usar update-rc.d para instalar symlinks de runlevel
+inherit update-rc.d
 
-# Aseguramos que wpa_supplicant esté presente
-RDEPENDS:${PN} += "wpa-supplicant"
+# wpa_supplicant (cliente), hostapd + dnsmasq (AP fallback), iw (modo/config)
+RDEPENDS:${PN} += "wpa-supplicant hostapd dnsmasq iw"
+
+# Arrancar al boot (S=stop en 0/1/6, S=start en 2/3/4/5), prioridad 99 (ultimo)
+INITSCRIPT_NAME = "wifi-connect"
+INITSCRIPT_PARAMS = "defaults 99 10"
 
 do_install() {
-    # 1. Crear directorios de destino
-    install -d ${D}${sysconfdir}/wpa_supplicant
-    
-    # 2. Instalar el archivo de configuración con permisos restringidos
-    install -m 0600 ${WORKDIR}/wpa_supplicant-wlan0.conf ${D}${sysconfdir}/wpa_supplicant/wpa_supplicant-wlan0.conf
+    # wpa_supplicant.conf en /etc (lo lee el init.d script)
+    install -d ${D}${sysconfdir}
+    install -m 0600 ${WORKDIR}/wpa_supplicant.conf ${D}${sysconfdir}/wpa_supplicant.conf
+
+    # init.d script
+    install -d ${D}${sysconfdir}/init.d
+    install -m 0755 ${WORKDIR}/wifi-connect ${D}${sysconfdir}/init.d/wifi-connect
 }
 
-# Habilitar el servicio systemd de wpa_supplicant para wlan0
-SYSTEMD_SERVICE:${PN} = "wpa_supplicant@wlan0.service"
-SYSTEMD_AUTO_ENABLE:${PN} = "enable"
-
-FILES:${PN} += "${sysconfdir}/wpa_supplicant/wpa_supplicant-wlan0.conf"
+FILES:${PN} += "${sysconfdir}/wpa_supplicant.conf \
+                ${sysconfdir}/init.d/wifi-connect"
