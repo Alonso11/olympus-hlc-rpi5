@@ -19,14 +19,15 @@ INITSCRIPT_NAME = "wifi-connect"
 INITSCRIPT_PARAMS = "defaults 99 10"
 
 do_install() {
-    # wpa_supplicant.conf en /etc (lo lee el init.d script)
-    install -d ${D}${sysconfdir}
-    install -m 0600 ${WORKDIR}/wpa_supplicant.conf ${D}${sysconfdir}/wpa_supplicant.conf
+    # wpa_supplicant.conf en /etc/wpa_supplicant/ (evita conflicto con
+    # /etc/wpa_supplicant.conf que instala el paquete wpa-supplicant de poky)
+    install -d ${D}${sysconfdir}/wpa_supplicant
+    install -m 0600 ${WORKDIR}/wpa_supplicant.conf ${D}${sysconfdir}/wpa_supplicant/wpa_supplicant.conf
 
     # init.d script
     install -d ${D}${sysconfdir}/init.d
     install -m 0755 ${WORKDIR}/wifi-connect ${D}${sysconfdir}/init.d/wifi-connect
 }
 
-FILES:${PN} += "${sysconfdir}/wpa_supplicant.conf \
+FILES:${PN} += "${sysconfdir}/wpa_supplicant/wpa_supplicant.conf \
                 ${sysconfdir}/init.d/wifi-connect"

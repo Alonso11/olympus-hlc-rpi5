@@ -11,7 +11,7 @@
 ### END INIT INFO
 
 # ─── Configuracion ──────────────────────────────────────────────────────────
-WPA_CONF=/etc/wpa_supplicant.conf
+WPA_CONF=/etc/wpa_supplicant/wpa_supplicant.conf
 IFACE=wlan0
 CLIENT_TIMEOUT=15
 AP_IP=192.168.100.1
