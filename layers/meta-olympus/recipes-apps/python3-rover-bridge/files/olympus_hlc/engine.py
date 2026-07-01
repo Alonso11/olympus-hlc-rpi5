@@ -118,7 +118,7 @@ class HlcEngine:
                 self._override_reason = None
 
                 # Vision: error de cámara → STB seguro
-                if cmd is None and self._mode == "vision":
+                if cmd is None and self._mode in ("vision", "vision-nav"):
                     self._log.warn("CTRL", "Camera error — sending STB")
                     cmd = "STB"
 
@@ -131,7 +131,7 @@ class HlcEngine:
                 self._keepalive()
 
                 # Vision: pausa entre frames (~20 Hz máximo)
-                if self._mode == "vision":
+                if self._mode in ("vision", "vision-nav"):
                     time.sleep(0.05)
 
                 self._check_cycle(cycle_start)

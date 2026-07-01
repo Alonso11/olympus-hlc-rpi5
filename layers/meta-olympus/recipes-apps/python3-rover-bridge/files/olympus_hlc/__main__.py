@@ -21,6 +21,7 @@ from .sources.manual_stream import ManualStreamSource
 from .sources.station import StationSource
 from .sources.vision import VisionSource
 from .sources.vision_gcs import VisionGCSSource
+from .sources.vision_nav import VisionNavSource
 
 
 def main() -> None:
@@ -29,16 +30,17 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=["vision", "vision-gcs", "manual", "gcs", "station"],
+        choices=["vision", "vision-nav", "vision-gcs", "manual", "gcs", "station"],
         required=True,
-        help="Command source: 'vision' (camera+YOLOv8n), 'manual' (stdin), "
+        help="Command source: 'vision' (camera+YOLOv8n), 'vision-nav' (lunar seg), "
+             "'manual' (stdin), "
              "'gcs' (UDP+CSP desde GCS, SRS-013), o 'station' (GUI por TCP — "
              "consolidación A: reemplaza el daemon ground_station/olympus_station.py)",
     )
     parser.add_argument(
         "--model",
         default="/usr/share/olympus/models/yolov8n.onnx",
-        help="Path to YOLOv8n ONNX model (vision mode only)",
+        help="Path to ONNX model (vision: YOLOv8n, vision-nav: lunar UNetMobileNet)",
     )
     parser.add_argument(
         "--port",
@@ -127,6 +129,8 @@ def main() -> None:
         source = StationSource(model_path=args.model)
     elif args.mode == "vision-gcs":
         source = VisionGCSSource(args.model, gcs_host=args.gcs_host)
+    elif args.mode == "vision-nav":
+        source = VisionNavSource(args.model)
     else:
         source = VisionSource(args.model)
 
