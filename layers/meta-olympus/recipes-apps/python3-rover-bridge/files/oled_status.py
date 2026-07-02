@@ -100,11 +100,41 @@ def refresh(disp) -> None:
     ssid = get_wifi_ssid()
     ip = get_default_ip()
     disp.clear()
-    disp.draw_text(0, 0, "OLYMPUS ROVER")
+    disp.draw_text(0, 0, "Olympus-Rover")
     disp.draw_text(0, 1, hostname[:16])
-    disp.draw_text(0, 3, ("NET:" + (ssid or "NO WIFI"))[:16])
-    disp.draw_text(0, 4, ("IP:" + (ip or "0.0.0.0"))[:16])
-    disp.draw_text(0, 6, "i2c 0x3C")
+
+    # NET (split if too long)
+    net_str = ssid or "NO WIFI"
+    net_full = "NET:" + net_str
+    if len(net_full) > 16:
+        split = net_str.find("-")
+        if split == -1:
+            split = len(net_str) // 2
+        else:
+            split += 1
+        disp.draw_text(0, 3, ("NET:" + net_str[:split])[:16])
+        disp.draw_text(0, 4, ("  " + net_str[split:])[:16])
+        ip_start = 5
+    else:
+        disp.draw_text(0, 3, net_full)
+        ip_start = 4
+
+    # IP (split if too long)
+    ip_str = ip or "0.0.0.0"
+    ip_full = "IP:" + ip_str
+    if len(ip_full) > 16:
+        dot = ip_str.rfind(".", 0, len(ip_str) // 2 + 3)
+        if dot == -1:
+            dot = len(ip_str) // 2
+        disp.draw_text(0, ip_start, ("IP:" + ip_str[:dot])[:16])
+        disp.draw_text(0, ip_start + 1, ("  " + ip_str[dot:])[:16])
+        hw_line = ip_start + 2
+    else:
+        disp.draw_text(0, ip_start, ip_full)
+        hw_line = ip_start + 1
+
+    if hw_line <= 7:
+        disp.draw_text(0, hw_line, "i2c 0x3C")
     disp.flush()
 
 
