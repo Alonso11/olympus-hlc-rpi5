@@ -16,21 +16,48 @@ import sys
 import time
 
 
-def get_default_ip() -> str:
-    """IP de la interfaz de ruta por defecto (sin enviar paquetes)."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+def get_default_ip(iface: str = "wlan0") -> str:
+    """IP de la interfaz de red activa."""
+    for name in (iface, "eth0", "wlan0"):
+        try:
+            out = subprocess.run(
+                ["ip", "-4", "addr", "show", name],
+                capture_output=True, text=True, timeout=2,
+            )
+            for line in out.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("inet "):
+                    return line.split()[1].split("/")[0]
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            continue
+    # Fallback: UDP socket trick
     try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(1)
         s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
     except OSError:
         return ""
-    finally:
-        s.close()
 
 
 def get_wifi_ssid(iface: str = "wlan0") -> str:
-    """SSID de la red WiFi asociada, o '' si no hay enlace / no hay tools."""
-    # 1) wireless-tools:  iwgetid -r
+    """SSID de la red WiFi (cliente o AP), o '' si no hay tools."""
+    # 1) Modo AP:  iw dev <iface> info  (linea "ssid <nombre>")
+    try:
+        out = subprocess.run(
+            ["iw", "dev", iface, "info"],
+            capture_output=True, text=True, timeout=2,
+        )
+        for line in out.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("ssid"):
+                return line.split(None, 1)[1]
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # 2) Modo cliente: iwgetid -r
     try:
         out = subprocess.run(
             ["iwgetid", "-r"],
@@ -42,7 +69,7 @@ def get_wifi_ssid(iface: str = "wlan0") -> str:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    # 2) nl80211:  iw dev <iface> link  (linea "SSID: <nombre>")
+    # 3) Modo cliente (nl80211):  iw dev <iface> link
     try:
         out = subprocess.run(
             ["iw", "dev", iface, "link"],
@@ -55,7 +82,7 @@ def get_wifi_ssid(iface: str = "wlan0") -> str:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    # 3) Sin herramientas WiFi: indicar enlace si /proc/net/wireless tiene linea
+    # 4) Sin tools: ver /proc/net/wireless
     try:
         with open("/proc/net/wireless") as f:
             for line in f:
@@ -68,9 +95,17 @@ def get_wifi_ssid(iface: str = "wlan0") -> str:
 
 
 def refresh(disp) -> None:
+    import socket
+    hostname = socket.gethostname()
     ssid = get_wifi_ssid()
     ip = get_default_ip()
-    disp.display_network_info(ssid or "NO WIFI", ip or "0.0.0.0")
+    disp.clear()
+    disp.draw_text(0, 0, "OLYMPUS ROVER")
+    disp.draw_text(0, 1, hostname[:16])
+    disp.draw_text(0, 3, ("NET:" + (ssid or "NO WIFI"))[:16])
+    disp.draw_text(0, 4, ("IP:" + (ip or "0.0.0.0"))[:16])
+    disp.draw_text(0, 6, "i2c 0x3C")
+    disp.flush()
 
 
 def main() -> None:
@@ -103,10 +138,11 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        try:
-            disp.power_off()
-        except Exception:
-            pass
+        if not args.once:
+            try:
+                disp.power_off()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
