@@ -1,24 +1,16 @@
-SUMMARY = "Olympus AP — hotspot WiFi para operación en campo"
+# Version: v2.0
+SUMMARY = "Olympus AP config — hostapd/dnsmasq para hotspot (field mode)"
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
-SRC_URI = " \
-    file://hostapd.conf \
-    file://dnsmasq-ap.conf \
-    file://olympus-ap.service \
-    file://olympus-mode.sh \
-"
+# Solo configs — el init.d script wifi-connect gestiona el ciclo de vida.
+SRC_URI = "file://hostapd.conf \
+           file://dnsmasq-ap.conf \
+           file://olympus-mode.sh"
 
 S = "${WORKDIR}"
 
-inherit systemd
-
-RDEPENDS:${PN} = "hostapd dnsmasq"
-
-# Deshabilitado por defecto — activar con: systemctl enable olympus-ap
-# o con el script: olympus-mode field
-SYSTEMD_SERVICE:${PN} = "olympus-ap.service"
-SYSTEMD_AUTO_ENABLE:${PN} = "disable"
+RDEPENDS:${PN} = "hostapd dnsmasq wifi-config"
 
 do_install() {
     # hostapd config
@@ -30,12 +22,7 @@ do_install() {
     install -m 0644 ${WORKDIR}/dnsmasq-ap.conf \
         ${D}${sysconfdir}/dnsmasq-ap.conf
 
-    # systemd service
-    install -d ${D}${systemd_unitdir}/system
-    install -m 0644 ${WORKDIR}/olympus-ap.service \
-        ${D}${systemd_unitdir}/system/olympus-ap.service
-
-    # Script de cambio de modo
+    # Script de cambio de modo (usa init.d, no systemctl)
     install -d ${D}${sbindir}
     install -m 0755 ${WORKDIR}/olympus-mode.sh \
         ${D}${sbindir}/olympus-mode
@@ -44,6 +31,5 @@ do_install() {
 FILES:${PN} = " \
     ${sysconfdir}/hostapd/hostapd.conf \
     ${sysconfdir}/dnsmasq-ap.conf \
-    ${systemd_unitdir}/system/olympus-ap.service \
     ${sbindir}/olympus-mode \
 "

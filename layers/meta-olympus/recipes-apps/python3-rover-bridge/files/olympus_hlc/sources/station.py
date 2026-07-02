@@ -11,7 +11,8 @@
 #
 # Protocolo (idéntico al daemon retirado):
 #   Puerto 5006 (control, bidireccional, texto por líneas)
-#       GUI → HLC : "MODE:MANUAL" | "MODE:AUTO" | "EXP:l:r" | "STB" | "RST" | "AVD:L" ...
+#       GUI → HLC : "MODE:MANUAL" | "MODE:AUTO" | "MODEL:YOLO" | "MODEL:LUNAR" |
+#                    "EXP:l:r" | "STB" | "RST" | "AVD:L" | "SAFE:FULL" ...
 #       HLC → GUI : "TLM:<frame>"  "CMD:<cmd>"  "EVT:<msg>"
 #   Puerto 5005 (video, HLC → GUI): [4 bytes len big-endian][JPEG]
 #
@@ -31,15 +32,16 @@ import subprocess
 import threading
 import time
 
+from ..config import LUNAR_MODEL_PATH
 from ..interfaces import CommandSource
 from ..monitors import CommLinkMonitor
 
 # ── Parámetros (antes constantes del daemon) ──────────────────────────────────
 CTRL_PORT  = 5006
 VIDEO_PORT = 5005
-DEADMAN_S  = 1.2
+DEADMAN_S  = 6.0  # AUTO: tolera latencia de YOLO en RPi5 (3-5s/inferencia)
 CAM_W, CAM_H, CAM_FPS = 640, 480, 10
-INFER_EVERY = 3   # AUTO: inferir 1 de cada N frames (alivia CPU del RPi5)
+INFER_EVERY = 1   # AUTO: inferir en cada frame (máxima capacidad de respuesta)
 
 # ── Helpers CSV (portados del daemon: pipeline de evidencia del TFG) ──────────
 _SAFETY_N = {"NORMAL": 0, "WARN": 1, "LIMIT": 2, "FAULT": 3}
@@ -110,7 +112,13 @@ class StationSource(CommandSource):
         # lógica que `--mode vision`) sobre el frame compartido del MJPEG, sin
         # doble captura. Si no hay modelo/cv2, AUTO queda deshabilitado y solo
         # opera MANUAL (degradación elegante).
+        #
+        # Modelo lunar (TFG Carlos Alfaro): VisionNavSource con segmentación
+        # semántica UNetMobileNet. La GUI selecciona entre YOLO y lunar con
+        # "MODEL:YOLO" / "MODEL:LUNAR"; _infer_auto brancea según _model_mode.
         self._vision = None
+        self._vision_nav = None
+        self._model_mode = "YOLO"   # "YOLO" | "LUNAR" (selector GUI)
         self._auto_cmd   = "STB"
         self._auto_fresh = False
         self._auto_dets: list = []
@@ -118,10 +126,18 @@ class StationSource(CommandSource):
             try:
                 from .vision import VisionSource
                 self._vision = VisionSource(model_path)
-                print(f"[StationSource] AUTO habilitado — modelo {model_path}")
+                print(f"[StationSource] AUTO habilitado — modelo YOLO {model_path}")
             except (SystemExit, Exception) as ex:  # noqa: BLE001
                 self._vision = None
-                print(f"[StationSource] AUTO deshabilitado (modelo/cv2 no disponible): {ex}")
+                print(f"[StationSource] YOLO deshabilitado (modelo/cv2 no disponible): {ex}")
+        # Modelo lunar (siempre intentar cargarlo — la GUI puede seleccionarlo)
+        try:
+            from .vision_nav import VisionNavSource
+            self._vision_nav = VisionNavSource(LUNAR_MODEL_PATH)
+            print(f"[StationSource] Lunar habilitado — modelo {LUNAR_MODEL_PATH}")
+        except (SystemExit, Exception) as ex:  # noqa: BLE001
+            self._vision_nav = None
+            print(f"[StationSource] Lunar deshabilitado (modelo/cv2 no disponible): {ex}")
 
         self._ctrl_conn = None            # socket del cliente de control activo
         self._stop = threading.Event()
@@ -137,7 +153,7 @@ class StationSource(CommandSource):
             # de frames): en la RPi5 el forward tarda cientos de ms y, si corriera
             # dentro de _camera_loop, taparía el pipe de rpicam-vid y congelaría el
             # video en cuanto se entra a AUTO.
-            if self._vision is not None:
+            if self._vision is not None or self._vision_nav is not None:
                 threading.Thread(target=self._inference_loop, daemon=True).start()
 
         csv_str = csv_path or "deshabilitado"
@@ -153,7 +169,8 @@ class StationSource(CommandSource):
         with self._lock:
             # AUTO: el loop de cámara produce el comando; lo devolvemos cuando es
             # nuevo (uno por inferencia) para no inundar al engine cada ciclo.
-            if self._mode == "AUTO" and self._vision is not None:
+            active = self._vision if self._model_mode == "YOLO" else self._vision_nav
+            if self._mode == "AUTO" and active is not None:
                 if self._auto_fresh:
                     self._auto_fresh = False
                     cmd = self._auto_cmd
@@ -333,7 +350,8 @@ class StationSource(CommandSource):
                         self._last_recv = time.monotonic()
                         if c.startswith("MODE:"):
                             m = c[5:].upper()
-                            if m == "AUTO" and self._vision is not None:
+                            active = self._vision if self._model_mode == "YOLO" else self._vision_nav
+                            if m == "AUTO" and active is not None:
                                 with self._lock:
                                     self._mode = "AUTO"
                                     self._drive_active = False
@@ -359,6 +377,19 @@ class StationSource(CommandSource):
                                 with self._lock:
                                     self._safety_level = lvl
                                 self._send_gui(f"EVT:SAFETY_{lvl}\n")
+                            continue
+                        if c.startswith("MODEL:"):
+                            m = c[6:].upper()
+                            if m in ("YOLO", "LUNAR"):
+                                target = self._vision if m == "YOLO" else self._vision_nav
+                                if target is None:
+                                    self._send_gui(f"EVT:{m}_UNAVAILABLE_NO_MODEL\n")
+                                else:
+                                    with self._lock:
+                                        self._model_mode = m
+                                        self._auto_fresh = False
+                                        self._auto_dets = []
+                                    self._send_gui(f"EVT:MODEL_{m}\n")
                             continue
                         if c in ("STB", "FLT"):
                             # Paro de emergencia: en AUTO, next_command devuelve la
@@ -440,22 +471,43 @@ class StationSource(CommandSource):
             time.sleep(1)   # rpicam murió: reintentar
 
     def _inference_loop(self) -> None:
-        """Hilo dedicado de inferencia: en AUTO corre YOLO sobre el ÚLTIMO frame
-        disponible, a su propio ritmo (la RPi5 da ~1-3 inf/s) sin bloquear el
-        video. Salta frames intermedios: siempre infiere sobre el más reciente."""
+        """Hilo dedicado de inferencia: en AUTO corre el modelo activo (YOLO o
+        lunar) sobre el ÚLTIMO frame disponible, a su propio ritmo (la RPi5 da
+        ~1-3 inf/s) sin bloquear el video. Salta frames intermedios: siempre
+        infiere sobre el más reciente."""
         last_seen = None
         while not self._stop.is_set():
             with self._lock:
                 mode = self._mode
+                model_mode = self._model_mode
                 jpeg = self._latest_jpeg
-            if mode != "AUTO" or self._vision is None or not jpeg or jpeg is last_seen:
+            active = self._vision if model_mode == "YOLO" else self._vision_nav
+            if mode != "AUTO" or active is None or not jpeg or jpeg is last_seen:
                 time.sleep(0.03)        # nada nuevo / no-AUTO: no quemar CPU
                 continue
             last_seen = jpeg
             self._infer_auto(jpeg)
 
     def _infer_auto(self, jpeg: bytes) -> None:
-        """Decodifica el JPEG, corre la decisión YOLO y publica comando + DET."""
+        """Decodifica el JPEG, corre la decisión del modelo activo (YOLO o lunar)
+        y publica comando + overlay (DET: para YOLO; el lunar no tiene bboxes)."""
+        # ── Lunar: segmentación semántica (TFG Carlos Alfaro) ──
+        if self._model_mode == "LUNAR" and self._vision_nav is not None:
+            vn = self._vision_nav
+            try:
+                frame = vn._cv2.imdecode(
+                    vn._np.frombuffer(jpeg, vn._np.uint8), vn._cv2.IMREAD_COLOR)
+                if frame is None:
+                    return
+                cmd, nav_mask = vn.infer(frame)
+            except Exception as ex:  # noqa: BLE001
+                print(f"[StationSource] lunar infer err: {ex}")
+                return
+            with self._lock:
+                self._auto_cmd   = cmd
+                self._auto_fresh = True
+            return
+        # ── YOLO: object detection ──
         v = self._vision
         if v is None:
             return

@@ -2,19 +2,17 @@
 # olympus-mode.sh — cambia entre modo lab (WiFi cliente) y field (AP hotspot)
 #
 # Uso:
-#   olympus-mode field    → crea red Olympus-Rover (192.168.100.1)
-#   olympus-mode lab      → conecta a red del lab via wpa_supplicant
+#   olympus-mode field    → fuerza AP Olympus-Rover (192.168.100.1)
+#   olympus-mode lab      → intenta cliente WiFi (estudiantes.ie)
 #   olympus-mode status   → muestra modo activo e IP actual
-
-set -e
+#
+# Funciona con sysvinit (init.d), no requiere systemctl.
 
 case "${1:-status}" in
 
   field)
     echo "[olympus-mode] Activando modo FIELD (AP hotspot)"
-    systemctl disable --now wpa_supplicant@wlan0.service 2>/dev/null || true
-    systemctl enable --now olympus-ap.service
-    sleep 2
+    /etc/init.d/wifi-connect ap
     echo "[olympus-mode] Listo"
     echo "  SSID     : Olympus-Rover"
     echo "  Password : olympus2026"
@@ -24,8 +22,7 @@ case "${1:-status}" in
 
   lab)
     echo "[olympus-mode] Activando modo LAB (WiFi cliente)"
-    systemctl disable --now olympus-ap.service 2>/dev/null || true
-    systemctl enable --now wpa_supplicant@wlan0.service
+    /etc/init.d/wifi-connect restart
     sleep 3
     IP=$(ip -4 addr show wlan0 2>/dev/null | awk '/inet / {split($2,a,"/"); print a[1]; exit}' || echo "pendiente")
     echo "[olympus-mode] Listo"
@@ -34,14 +31,7 @@ case "${1:-status}" in
     ;;
 
   status)
-    if systemctl is-active --quiet olympus-ap.service 2>/dev/null; then
-      echo "FIELD — AP activo (Olympus-Rover / 192.168.100.1)"
-    elif systemctl is-active --quiet wpa_supplicant@wlan0.service 2>/dev/null; then
-      IP=$(ip -4 addr show wlan0 2>/dev/null | awk '/inet / {split($2,a,"/"); print a[1]; exit}' || echo "?")
-      echo "LAB — WiFi cliente activo (IP: ${IP})"
-    else
-      echo "SIN CONEXION — ningún servicio WiFi activo"
-    fi
+    /etc/init.d/wifi-connect status
     ;;
 
   *)

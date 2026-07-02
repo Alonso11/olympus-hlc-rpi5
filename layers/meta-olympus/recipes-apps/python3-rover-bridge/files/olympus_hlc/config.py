@@ -162,6 +162,68 @@ SEG_ZONE_MIN      = float(_cfg.get("seg_zone_min",      0.05))   # Cobertura de 
 SEG_ROI_TOP       = float(_cfg.get("seg_roi_top",       0.5))    # Ignorar mitad superior del frame (obstáculos siempre en mitad inferior)
 SEG_MASK_THRESHOLD = float(_cfg.get("seg_mask_threshold", 0.5))  # Binarización sigmoide → bool (umbral canónico clasificador binario)
 
+# ─── Navegacion lunar (modo --mode vision-nav) ──────────────────────────────
+#
+# Integracion del modelo de segmentacion semantica lunar del TFG de Carlos
+# Alfaro (repo TFG_Quillo_CEA_ITCR) en el proyecto ELANAV (Olympus HLC).
+#
+# Segmentacion semantica lunar con UNetMobileNet (5 clases, 384² input).
+# Modelo entrenado y exportado a ONNX por Carlos; la logica de navegacion
+# (umbrales MIN_FORWARD, DELTA_SIDE, DELTA_CENTER y zonas 40/60%) se calibro
+# en su dataset lunar y se reutiliza aqui sin modificaciones.
+#
+# Clases del modelo:
+#   0 = Regolith  (navegable — terrain por donde el rover transita)
+#   1 = Crater    (obstáculo — depresión, riesgo de atrapamiento)
+#   2 = Rock      (obstáculo — roca, riesgo de colisión)
+#   3 = Mountain  (obstáculo — pared/elevación infranqueable)
+#   4 = Sky       (irrelevante — horizonte, no navegable ni obstáculo)
+#
+# NAV_CLASSES define qué clases se consideran transitables. Por defecto solo
+# Regolith (0). En terreno con cráters muy suaves se podría añadir 1, pero
+# es riesgoso — calibrar en campo.
+#
+# Umbrales de decisión (calibrados por Carlos en dataset lunar):
+#   MIN_FORWARD   — ratio mín. de navegable en centro para avanzar (0.18)
+#   DELTA_CENTER  — margen: si un lateral supera al centro por esto, girar (0.06)
+#   DELTA_SIDE    — diff. mín. entre laterales para decidir giro (0.05)
+#
+# Zonas de decisión (fracciones de ancho del frame):
+#   0 ─── 0.40 ─── 0.60 ─── 1
+#      IZQUIERDA  CENTRO  DERECHA
+#   Más anchas que las de YOLO (0.33/0.67) porque el modelo lunar prioriza
+#   el centro — si hay terrain navegable al frente, avanzar.
+
+LUNAR_MODEL_PATH    = str  (_cfg.get("lunar_model_path",
+                              "/usr/share/olympus/models/lunar_seg.onnx"))
+LUNAR_MODEL_H       = int  (_cfg.get("lunar_model_h",       384))
+LUNAR_MODEL_W       = int  (_cfg.get("lunar_model_w",       384))
+LUNAR_NAV_CLASSES   = list (_cfg.get("lunar_nav_classes",   [0]))
+LUNAR_MIN_FORWARD   = float(_cfg.get("lunar_min_forward",   0.18))
+LUNAR_DELTA_SIDE    = float(_cfg.get("lunar_delta_side",    0.05))
+LUNAR_DELTA_CENTER  = float(_cfg.get("lunar_delta_center",  0.06))
+LUNAR_USE_TRAPEZOID = bool (_cfg.get("lunar_use_trapezoid", True))
+LUNAR_ZONE_LEFT_END  = float(_cfg.get("lunar_zone_left_end",  0.40))
+LUNAR_ZONE_RIGHT_START = float(_cfg.get("lunar_zone_right_start", 0.60))
+
+# ─── SLAM semantico (modo --mode vision-nav) ────────────────────────────────
+#
+# Mapa de ocupacion semantico grid-based que integra mascaras de segmentacion
+# lunar proyectadas a coordenadas mundo. Adaptado del TFG de Carlos Alfaro.
+#
+# La pose del rover se obtiene de OdometryTracker (encoders, TLM v1.1) o EKF
+# (TLM v1.2, pendiente de integrar). El SLAM recibe la pose externamente —
+# diseno pluggable para cambiar la fuente sin modificar el modulo.
+#
+# CELL_M: tamano de celda en metros. 0.5m es suficiente para navegacion lunar
+#   (obstaculos > 0.5m son relevantes; menores se ignora).
+# MAP_W_M / MAP_H_M: dimensiones iniciales del mapa en metros. La grid se
+#   expande dinamicamente si el rover se acerca al borde.
+
+SLAM_CELL_M  = float(_cfg.get("slam_cell_m",  0.5))
+SLAM_MAP_W_M = float(_cfg.get("slam_map_w_m", 40.0))
+SLAM_MAP_H_M = float(_cfg.get("slam_map_h_m", 40.0))
+
 # ─── GCS link (SRS-013, SYS-FUN-021) ─────────────────────────────────────────
 
 GCS_LISTEN_PORT      = int  (_cfg.get("gcs_listen_port",      9000))

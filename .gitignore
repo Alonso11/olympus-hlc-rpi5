@@ -79,3 +79,7 @@ layers/poky/
 **/__pycache__/
 **/*.pyc
 **/*.pyo
+
+# Local-only (not published to GitHub)
+CLAUDE.md
+deploy-hlc-ssh.sh

@@ -1,0 +1,5 @@
+# --- I2C buses (RPi5) ---
+# Permite acceso sin root a /dev/i2c-* para el display OLED SSD1306
+# y cualquier otro periferico I2C conectado al header de 40 pines.
+# El bus 1 (i2c-1) usa GPIO2=SDA / GPIO3=SCL (pines 3 y 5).
+KERNEL=="i2c-[0-9]*", MODE="0666"

@@ -1,10 +1,13 @@
-// Version: v1.6
+// Version: v1.7
 use pyo3::prelude::*;
 use serialport;
 use std::time::{Duration, Instant};
 use std::io::{Read, Write};
 use std::sync::Mutex;
 use rppal::gpio::{Gpio, InputPin, OutputPin};
+
+mod oled;
+use oled::Ssd1306;
 
 // ─── Nota de arquitectura — sensor ultrasónico HC-SR04 ────────────────────────
 //
@@ -222,8 +225,92 @@ impl Rover {
     }
 }
 
+// ─── Display OLED SSD1306 (I2C) ──────────────────────────────────────────────
+//
+// Expone el driver oled::Ssd1306 a Python. Usado por oled_status.py para
+// mostrar el SSID de la red WiFi y la IP del rover en el display del header
+// de 40 pines (i2c-1, GPIO2/GPIO3, dir 0x3C).
+
+#[pyclass]
+struct OledDisplay {
+    dev: Ssd1306,
+}
+
+#[pymethods]
+impl OledDisplay {
+    #[new]
+    #[pyo3(signature = (addr=0x3c, width=128, height=64))]
+    fn new(addr: u16, width: u32, height: u32) -> PyResult<Self> {
+        let dev = Ssd1306::new(addr, width, height)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Error OLED: {}", e)))?;
+        Ok(OledDisplay { dev })
+    }
+
+    /// Borra el buffer y lo envia al display.
+    fn clear(&mut self) -> PyResult<()> {
+        self.dev.clear().map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("OLED clear: {}", e)))
+    }
+
+    /// Envia el buffer actual al display (sin borrarlo).
+    fn flush(&mut self) -> PyResult<()> {
+        self.dev.flush().map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("OLED flush: {}", e)))
+    }
+
+    /// Dibuja texto en la pagina `line` (0..8 para 128x64) desde la columna `x`.
+    /// Fuente 8x8: 16 columnas de ancho, 8 lineas de alto. No hace flush().
+    fn draw_text(&mut self, x: u32, line: u32, text: &str) {
+        self.dev.draw_text(x, line, text);
+    }
+
+    /// Enciende/apaga un pixel (x: 0..128, y: 0..64). No hace flush().
+    fn set_pixel(&mut self, x: u32, y: u32, on: bool) {
+        self.dev.set_pixel(x, y, on);
+    }
+
+    /// Apaga el display (panel) sin perder el buffer.
+    fn power_off(&mut self) -> PyResult<()> {
+        self.dev.power_off().map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("OLED power_off: {}", e)))
+    }
+
+    /// Enciende el display.
+    fn power_on(&mut self) -> PyResult<()> {
+        self.dev.power_on().map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("OLED power_on: {}", e)))
+    }
+
+    /// Ajusta el contraste (0-255).
+    fn set_contrast(&mut self, value: u8) -> PyResult<()> {
+        self.dev.set_contrast(value).map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("OLED contrast: {}", e)))
+    }
+
+    /// Invierte (True) o restaura (False) los colores.
+    fn invert(&mut self, on: bool) -> PyResult<()> {
+        self.dev.invert(on).map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("OLED invert: {}", e)))
+    }
+
+    /// Helper: limpia el display y muestra el SSID y la IP del rover.
+    /// Layout:
+    ///   line 0: "OLYMPUS ROVER"
+    ///   line 2: "NET: <ssid>"        (recortado a 15 chars)
+    ///   line 3: "IP:  <ip>"          (recortado a 15 chars)
+    ///   line 5: "HW: i2c 0x3C"        (informacion de enlace)
+    /// Hace flush() al final.
+    fn display_network_info(&mut self, ssid: &str, ip: &str) -> PyResult<()> {
+        const CW: usize = 16; // 128px / 8px por caracter
+        fn trunc(s: &str, max: usize) -> String {
+            s.chars().take(max).collect()
+        }
+        self.dev.clear_buffer();
+        self.dev.draw_text(0, 0, "OLYMPUS ROVER");
+        self.dev.draw_text(0, 2, &format!("NET: {}", trunc(ssid, CW - 5)));
+        self.dev.draw_text(0, 3, &format!("IP:  {}", trunc(ip, CW - 5)));
+        self.dev.draw_text(0, 5, "HW: i2c 0x3C");
+        self.dev.flush().map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("OLED flush: {}", e)))
+    }
+}
+
 #[pymodule]
 fn rover_bridge(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Rover>()?;
+    m.add_class::<OledDisplay>()?;
     Ok(())
 }
