@@ -1,0 +1,38 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          oled-status
+# Required-Start:    $remote_fs $network
+# Required-Stop:     $remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Muestra IP y SSID en el OLED
+# Description:       Inicia oled_status.py para mostrar la info de red
+#                    en el display OLED SSD1306 (I2C 0x3C)
+### END INIT INFO
+
+DAEMON=/usr/bin/oled_status.py
+NAME=oled-status
+DESC="OLED status display"
+
+test -x $DAEMON || exit 0
+
+case "$1" in
+    start)
+        echo "Starting $DESC"
+        start-stop-daemon -S -b -x $DAEMON -- --interval 5
+        ;;
+    stop)
+        echo "Stopping $DESC"
+        start-stop-daemon -K -x $DAEMON
+        ;;
+    restart|force-reload)
+        $0 stop
+        sleep 1
+        $0 start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}" >&2
+        exit 1
+        ;;
+esac
+exit 0

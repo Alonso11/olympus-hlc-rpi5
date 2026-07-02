@@ -11,6 +11,7 @@ SRC_URI = "file://rover-bridge/ \
            file://test_opencv_camera.py \
            file://olympus_controller.py \
            file://oled_status.py \
+           file://oled-status.initd \
            file://olympus_hlc/ \
            file://test_smoke.py \
            file://debug_vision.py \
@@ -22,7 +23,10 @@ SRC_URI = "file://rover-bridge/ \
 # El código está en la subcarpeta rover-bridge
 S = "${WORKDIR}/rover-bridge"
 
-inherit cargo python3native python3-dir pkgconfig
+inherit cargo python3native python3-dir pkgconfig update-rc.d
+
+INITSCRIPT_NAME = "oled-status"
+INITSCRIPT_PARAMS = "start 99 5 . stop 20 0 1 6 ."
 
 # Dependencias para compilar la extensión nativa (necesita udev para serialport)
 DEPENDS += "python3 python3-setuptools-native udev"
@@ -65,6 +69,10 @@ do_install() {
     install -m 0755 ${WORKDIR}/debug_vision.py ${D}${bindir}/debug_vision.py
     install -m 0755 ${WORKDIR}/oled_status.py ${D}${bindir}/oled_status.py
 
+    # Init script para inicio automatico del OLED en boot
+    install -d ${D}${sysconfdir}/init.d
+    install -m 0755 ${WORKDIR}/oled-status.initd ${D}${sysconfdir}/init.d/oled-status
+
     # Instalar el paquete olympus_hlc (refactorización SOLID, v3.0)
     install -d ${D}${PYTHON_SITEPACKAGES_DIR}/olympus_hlc/sources
     cp -r ${WORKDIR}/olympus_hlc/. ${D}${PYTHON_SITEPACKAGES_DIR}/olympus_hlc/
@@ -98,4 +106,5 @@ FILES:${PN} += "${PYTHON_SITEPACKAGES_DIR}/rover_bridge.so \
                 ${datadir}/olympus/models/yolov8n.onnx \
                 ${datadir}/olympus/models/yolov8n-seg.onnx \
                 ${datadir}/olympus/models/lunar_seg.onnx \
-                ${sysconfdir}/olympus/olympus_controller.yaml"
+                ${sysconfdir}/olympus/olympus_controller.yaml \
+                ${sysconfdir}/init.d/oled-status"
