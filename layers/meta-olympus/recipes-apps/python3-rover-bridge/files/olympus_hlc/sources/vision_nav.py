@@ -261,7 +261,7 @@ class VisionNavSource(CommandSource):
         cmd, _mask = self.infer(frame)
         return cmd
 
-    def infer(self, frame) -> "tuple[str, object]":
+    def infer(self, frame, log=None) -> "tuple[str, object]":
         """
         Punto unico de decision reutilizable: retorna (comando_MSM, nav_mask).
         nav_mask es un ndarray uint8 [H, W] con 1=navegable, 0=obstaculo,
