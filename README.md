@@ -5,26 +5,38 @@
 Custom Linux image for the **Raspberry Pi 5** built with Yocto (Scarthgap).
 Acts as the High-Level Controller (HLC) of the Olympus rover, communicating with
 an Arduino Mega 2560 (Low-Level Controller) over UART/USB using the MSM protocol.
+Long-range telecommand and telemetry use **CSP (CubeSat Space Protocol)** over
+UHF packet radio via **NinoTNC 9600A KISS TNC + Baofeng radio**, with SFP
+(Serial Fragmentation Protocol) for image and video transfer.
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────┐        ┌──────────────────────────────────┐
-│  Raspberry Pi 5 (HLC)                │        │  Arduino Mega 2560 (LLC)         │
-│                                      │        │                                  │
-│  olympus_hlc/ (v3.0)                 │        │  MSM: STB/EXP/AVD/RET/FLT       │
-│  ├── HlcEngine (bucle de control)    │        │                                  │
-│  ├── VisionSource (YOLOv8n ONNX)     │        │  6 Motors (PWM L298N)            │
-│  ├── ManualSource (stdin)            │        │  HC-SR04 D38/D39 (< 200 mm → FAULT) │
-│  ├── GCSSource (UDP CSP/CRC-32)      │        │  VL53L0X ToF I2C (< 150 mm → FAULT) │
-│  ├── WaypointTracker                 │        │  6 Hall encoders (INT0–INT5)     │
-│  ├── EnergyMonitor (4S Li-ion)       │        │                                  │
-│  └── OlympusLogger → /var/log/       │        │                                  │
-│                                      │        │                                  │
-│  rover_bridge.so (Rust/PyO3) ────────┼─ USB ──┼─── USART0 (CDC-ACM 115200 8N1)  │
-│  /dev/arduino_mega                   │        │                                  │
-│  Cámara CSI IMX219 (CAM0)            │        └──────────────────────────────────┘
-└──────────────────────────────────────┘
+┌─────────────────────────────────────────┐       ┌──────────────────────────────────┐
+│  Raspberry Pi 5 (HLC)                   │       │  Arduino Mega 2560 (LLC)         │
+│                                         │       │                                  │
+│  olympus_hlc/ (v3.0)                    │       │  MSM: STB/EXP/AVD/RET/FLT       │
+│  ├── HlcEngine (bucle de control)       │       │                                  │
+│  ├── VisionSource (YOLOv8n ONNX)        │       │  6 Motors (PWM L298N)            │
+│  ├── ManualSource (stdin)               │       │  HC-SR04 D38/D39                 │
+│  ├── GCSSource (UDP CSP/CRC-32)         │       │  VL53L0X ToF I2C                 │
+│  ├── WaypointTracker                    │       │  6 Hall encoders (INT0–INT5)     │
+│  ├── EnergyMonitor (4S Li-ion)          │       │                                  │
+│  └── OlympusLogger → /var/log/          │       │                                  │
+│                                         │       │                                  │
+│  rover_bridge.so (Rust/PyO3) ───────────┼─ USB ─┼─── USART0 (CDC-ACM 115200 8N1)  │
+│  /dev/arduino_mega                      │       └──────────────────────────────────┘
+│                                         │
+│  ┌─ CSP / SFP ──────────────────────┐   │
+│  │  csp_sfp_rover (systemd)         │   │
+│  │  ├── KISS TNC @ 57600 baud       │───┼── UART GPIO ─── NinoTNC 9600A ─── Baofeng
+│  │  ├── SFP: image + video + tlm    │   │
+│  │  └── RDP: window=4, timeout=15s  │   │
+│  └──────────────────────────────────┘   │
+│                                         │
+│  Cámara CSI IMX219 (CAM0)               │
+│  OV5647 overlay deployed (CAM1)         │
+└─────────────────────────────────────────┘
 ```
 
 See [docs/architecture.md](docs/architecture.md) for the full system overview.
@@ -105,6 +117,62 @@ when idle to keep the Arduino watchdog alive (~2 s timeout → FAULT).
 
 ---
 
+## CSP / SFP Rover
+
+The `csp-sfp-rover` service provides long-range telecommand and telemetry
+over UHF packet radio using the NinoTNC 9600A KISS TNC and a Baofeng radio:
+
+```
+systemctl status csp-rover.service
+```
+
+### Protocol stack
+
+| Layer | Component |
+|-------|-----------|
+| Link | AX.25 (KISS) over UART @ 57600 baud |
+| Network | CSP (CubeSat Space Protocol) |
+| Transport | RDP (Reliable Datagram Protocol) |
+| Fragmentation | SFP (Serial Fragmentation Protocol) |
+| Application | CSP port 10 — commands: `i` (image), `v` (video), `d` (telemetry dump) |
+
+### RDP tuning (half-duplex UHF)
+
+Validated experimentally for NinoTNC + Baofeng:
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| window_size | 4 | BDP-limited: 960 B/s × 0.838 s ≈ 804 B → 5 frames max, safe at 4 |
+| packet_timeout | 15000 ms | Must exceed RTT under congestion (2000–4000 ms) |
+| conn_timeout | 60000 ms | Covers long image transfers |
+| delayed_acks | 0 | Immediate ACK — avoids timeout expiry in half-duplex |
+| ack_timeout | 2000 ms | One-way half-duplex turnaround |
+
+### Conditional start
+
+The service only starts when the NinoTNC is physically connected:
+
+```bash
+/usr/bin/ninotnc-probe   # → exit 0 if TNC responds to KISS GETALL
+```
+
+`ExecStartPre` in `csp-rover.service` runs the probe before launching
+`csp_sfp_rover`. If the TNC is absent (bench testing), the service stays
+inactive — no wasted CPU or memory.
+
+### SFP commands (on CSP port 10)
+
+| Command | Response |
+|---------|----------|
+| `i` | Sends `rover_test.jpg` via SFP fragmentation |
+| `v` | Sends `rover_test.mp4` via SFP fragmentation |
+| `d` | 31-field telemetry dump (distances, voltages, IMU, currents, temps, encoders) |
+| `t` | Temperature string |
+| `h` | Humidity string |
+| `s` | Temperature + humidity |
+
+---
+
 ## What the image includes
 
 | Component | Description |
@@ -121,6 +189,12 @@ when idle to keep the Arduino watchdog alive (~2 s timeout → FAULT).
 | `resize-rootfs` | rootfs expansion on first boot |
 | OpenCV (cv2.dnn) | Computer vision and ONNX inference |
 | libcamera | CSI camera support (rpi/pisp pipeline, RPi5) |
+| `libcsp` | CSP library v4.2 (ELANav fork — SFP, RDP tuning, UDP, KISS interfaces) |
+| `libcsp_py3.so` | Python 3 CSP bindings (UDP init, KISS init, buffer management) |
+| `csp_sfp_rover` | Rover SFP node — telemetry, image, and video over UHF packet radio |
+| `ninotnc-probe` | NinoTNC presence detector — enables rover service conditionally |
+| `csp-rover.service` | systemd service (probe → rover, restart on failure) |
+| `ov5647.dtbo` | Device tree overlay for OV5647 camera (CAM1) |
 | Test scripts | `/usr/bin/test_bridge_interactive.py`, etc. |
 
 ---
