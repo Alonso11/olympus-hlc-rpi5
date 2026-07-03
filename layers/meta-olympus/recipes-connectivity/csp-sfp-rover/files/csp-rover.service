@@ -1,0 +1,12 @@
+[Unit]
+Description=CSP SFP Rover — ELANav telemetry and image/video server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/csp_sfp_rover -k /dev/ttyAMA0 -t 20000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

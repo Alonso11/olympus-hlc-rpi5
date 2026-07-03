@@ -10,6 +10,7 @@ IMAGE_FSTYPES = "wic.bz2 wic.bmap"
 IMAGE_INSTALL:append = " \
     libcsp \
     libcsp-dev \
+    csp-sfp-rover \
     avahi-daemon \
     avahi-olympus \
     hostapd \
