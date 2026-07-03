@@ -1,0 +1,17 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 573e0b2..7670b3d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -127,8 +127,10 @@ endif()
+ add_subdirectory(src)
+ add_subdirectory(unittests)
+ if(NOT CMAKE_SYSTEM_NAME STREQUAL "CYGWIN")
+-  add_subdirectory(examples)
+-  add_subdirectory(samples)
++  if(CSP_BUILD_SAMPLES)
++    add_subdirectory(examples)
++    add_subdirectory(samples)
++  endif()
+ endif()
+ 
+ if(${CSP_ENABLE_PYTHON3_BINDINGS})

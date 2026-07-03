@@ -1,12 +1,13 @@
 SUMMARY = "CubeSat Space Protocol library"
-LICENSE = "LGPL-2.1-only"
-LIC_FILES_CHKSUM = "file://LICENSE;md5=e38286c6cb20ecbf85b80bb4af68efdc"
+LICENSE = "MIT"
+LIC_FILES_CHKSUM = "file://LICENSE;md5=2915dc85ab8fd26629e560d023ef175c"
 
-SRC_URI = "git://github.com/libcsp/libcsp.git;protocol=https;branch=develop \
-           file://0001-add-udp-python-binding.patch \
-           file://0002-udp-dynamic-peer-learning.patch \
+SRC_URI = "git://github.com/CiQiuu/libcsp-ELANav.git;protocol=https;branch=develop \
+           file://0001-bindings-python-add-udp-init-wrapper.patch \
+           file://0002-if-udp-dynamic-peer-learning.patch \
+           file://0003-do-not-build-examples-by-default.patch \
 "
-SRCREV = "51628cd7a208edff81eff9b2b6fadc70dea5c5a4"
+SRCREV = "88556daef794d08b6f412624ef40acf170c1fe23"
 
 S = "${WORKDIR}/git"
 

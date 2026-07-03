@@ -1,37 +1,25 @@
-From: Olympus TFG <olympus@tec.ac.cr>
-Date: Tue, 22 Apr 2026 00:01:00 +0000
-Subject: [PATCH] if/udp: dynamic peer learning from RX + empty host support
-
-When host is "" at init, csp_if_udp no longer prints a warning and
-simply starts with peer_addr zeroed. On every received packet the TX
-peer address is updated to match the sender.
-
-This lets LibcspGCSSource start without knowing the GCS IP:
-  csp.udp_init(addr, "", lport, rport, is_default=True)
----
- src/interfaces/csp_if_udp.c | 27 +++++++++++++++++++++------
- 1 file changed, 21 insertions(+), 6 deletions(-)
-
 diff --git a/src/interfaces/csp_if_udp.c b/src/interfaces/csp_if_udp.c
+index b05a9c4..e5ff1a6 100644
 --- a/src/interfaces/csp_if_udp.c
 +++ b/src/interfaces/csp_if_udp.c
-@@ -49,13 +49,24 @@
-
- 	/* Setup RX frame to point to ID */
+@@ -44,13 +44,24 @@ int csp_if_udp_rx_work(int sockfd, size_t unused, csp_iface_t * iface) {
+ 
+ 	/* Setup RX frane to point to ID */
  	int header_size = csp_id_setup_rx(packet);
 -	int received_len = recvfrom(sockfd, (char *)packet->frame_begin, sizeof(packet->data) + header_size, MSG_WAITALL, NULL, NULL);
+-	
 +	struct sockaddr_in sender_addr;
 +	socklen_t sender_len = sizeof(sender_addr);
 +	int received_len = recvfrom(sockfd, (char *)packet->frame_begin,
 +	                            sizeof(packet->data) + header_size,
 +	                            MSG_WAITALL,
 +	                            (struct sockaddr *)&sender_addr, &sender_len);
-
++
  	if (received_len < header_size) {
  		csp_buffer_free(packet);
  		return CSP_ERR_NOMEM;
  	}
-
+ 
 +	/* Dynamic peer learning: update TX destination from last received packet.
 +	 * Enables operation without a pre-configured GCS IP (host=""). */
 +	csp_if_udp_conf_t * ifconf = iface->driver_data;
@@ -39,12 +27,12 @@ diff --git a/src/interfaces/csp_if_udp.c b/src/interfaces/csp_if_udp.c
 +	ifconf->peer_addr.sin_addr   = sender_addr.sin_addr;
 +
  	packet->frame_length = received_len;
-
+ 
  	/* Parse the frame and strip the ID field */
-@@ -113,12 +124,16 @@
-
+@@ -108,12 +119,16 @@ void csp_if_udp_init(csp_iface_t * iface, csp_if_udp_conf_t * ifconf) {
+ 
  	iface->driver_data = ifconf;
-
+ 
 -	if (inet_aton(ifconf->host, &ifconf->peer_addr.sin_addr) == 0) {
 -		csp_print("  Unknown peer address %s\n", ifconf->host);
 +	if (ifconf->host != NULL && ifconf->host[0] != '\0') {
@@ -56,7 +44,7 @@ diff --git a/src/interfaces/csp_if_udp.c b/src/interfaces/csp_if_udp.c
 +	} else {
 +		csp_print("  UDP dynamic peer — listen: %d  TX peer learned from RX\n", ifconf->lport);
  	}
-
+ 
 -	csp_print("  UDP peer address: %s:%d (listening on port %d)\n", inet_ntoa(ifconf->peer_addr.sin_addr), ifconf->rport, ifconf->lport);
 -
  	/* Start server thread */
