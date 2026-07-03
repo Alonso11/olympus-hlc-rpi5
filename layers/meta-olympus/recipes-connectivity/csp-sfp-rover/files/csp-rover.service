@@ -4,6 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
+ExecStartPre=/usr/bin/ninotnc-probe
 ExecStart=/usr/bin/csp_sfp_rover -k /dev/ttyAMA0 -t 20000
 Restart=on-failure
 RestartSec=5
