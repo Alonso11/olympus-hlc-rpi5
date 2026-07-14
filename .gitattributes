@@ -1,0 +1,3 @@
+# Treat all ONNX model files as binary — prevents git from mis-detecting
+# quantized/FP16 weights as text and bloating the diff/repo.
+*.onnx binary
