@@ -2,12 +2,67 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Systems Engineering](https://img.shields.io/badge/Focus-Systems%20Engineering-blue.svg)](#)
 
+## Overview
+
 Custom Linux image for the **Raspberry Pi 5** built with Yocto (Scarthgap).
-Acts as the High-Level Controller (HLC) of the Olympus rover, communicating with
-an Arduino Mega 2560 (Low-Level Controller) over UART/USB using the MSM protocol.
-Long-range telecommand and telemetry use **CSP (CubeSat Space Protocol)** over
-UHF packet radio via **NinoTNC 9600A KISS TNC + Baofeng radio**, with SFP
-(Serial Fragmentation Protocol) for image and video transfer.
+Acts as the **High-Level Controller (HLC)** of the Olympus rover, communicating
+with an Arduino Mega 2560 (Low-Level Controller) over UART/USB using the MSM
+protocol. Long-range telecommand and telemetry use **CSP (CubeSat Space
+Protocol)** with **SFP** (Serial Fragmentation Protocol) for image and video
+transfer, sourced from the parent systems-engineering project
+[Olympus-Project-TFG-TEC](https://github.com/Alonso11/Olympus-Project-TFG-TEC),
+which holds the IEEE 29148 SRS the design is traced to.
+
+---
+
+## Technical Highlights
+
+- **Dual HLC/LLC architecture** — the Raspberry Pi 5 (HLC, this repository) runs
+  GNC + YOLOv8n-seg vision (≤2 s cycle), while an ATmega2560 Rust firmware
+  ([rover-low-level-controller](https://github.com/Alonso11/rover-low-level-controller))
+  owns hard real-time motor/encoder control (20 ms loop), so a software fault on
+  the HLC cannot compromise physical safety.
+- **CSI camera setup (config-ready, single-module validated)** — device-tree
+  overlays are deployed for both IMX219 on CAM0 and OV5647 on CAM1
+  (EEPROM-less modules; `camera_auto_detect=0`), but only the **OV5647 on CAM1
+  has been validated on hardware**; IMX219 on CAM0 is configured but untested.
+- **Packet-radio stack (untested)** — CSP/RDP/SFP over a NinoTNC 9600A KISS TNC
+  + Baofeng UHF radio, with a `ninotnc-probe` presence detector that gates the
+  `csp-rover` systemd service so it only runs when the TNC is connected.
+  End-to-end UHF communication has **not** been validated yet.
+- **Verification status:** MSM HLC↔LLC bridge — verified; YOLOv8n-seg vision
+  (OV5647) — verified in lab; CSP/SFP over UHF — untested (pending hardware
+  validation); IMX219 CAM0 — configured, untested.
+
+---
+
+## Repository Structure
+
+```
+olympus-hlc-rpi5/
+├── 📄 README.md                          # This file
+├── 📄 LICENSE                            # MIT
+├── 📄 deploy-hlc-ssh.sh                  # Remote deploy helper
+├── 📂 scripts/                           # setup-env.sh, flash/deploy helpers
+├── 📂 docs/                              # architecture, testing, build, decision-log…
+│
+├── 📂 layers/
+│   ├── 📂 meta-olympus/                  # Project Yocto layer
+│   │   ├── 📂 conf/                      # Layer config
+│   │   ├── 📂 recipes-core/              # olympus-image, custom-udev-rules
+│   │   ├── 📂 recipes-apps/              # python3-rover-bridge (Rust/PyO3)
+│   │   ├── 📂 recipes-bsp/bootfiles/     # rpi-config bbappend, ov5647.dtbo
+│   │   ├── 📂 recipes-connectivity/      # libcsp, csp-sfp-rover, wifi-config, olympus-ap
+│   │   ├── 📂 recipes-kernel/linux/      # Kernel config fragments
+│   │   ├── 📂 recipes-multimedia/        # libcamera, libcamera-apps
+│   │   └── 📂 recipes-support/           # opencv, resize-rootfs
+│   ├── meta-raspberrypi/                 # Raspberry Pi hardware support
+│   ├── meta-openembedded/
+│   ├── meta-onnxruntime/
+│   └── meta-tensorflow-lite/
+│
+└── 📂 build/conf/local.conf              # Build config (MACHINE, RPI_EXTRA_CONFIG…)
+```
 
 ## Architecture
 
@@ -34,8 +89,8 @@ UHF packet radio via **NinoTNC 9600A KISS TNC + Baofeng radio**, with SFP
 │  │  └── RDP: window=4, timeout=15s  │   │
 │  └──────────────────────────────────┘   │
 │                                         │
-│  Cámara CSI IMX219 (CAM0)               │
-│  OV5647 overlay deployed (CAM1)         │
+│  Cámara CSI IMX219 (CAM0)  [config-only]│
+│  Cámara CSI OV5647 (CAM1)  [validada]   │
 └─────────────────────────────────────────┘
 ```
 
@@ -119,6 +174,11 @@ when idle to keep the Arduino watchdog alive (~2 s timeout → FAULT).
 
 ## CSP / SFP Rover
 
+> ⚠️ **Status: untested.** The CSP/SFP rover stack compiles and the
+> `ninotnc-probe` gates the service, but end-to-end UHF communication over the
+> NinoTNC + Baofeng has **not** been validated on hardware yet. RDP parameters
+> below are analytically tuned estimates (BDP-based), not measured values.
+
 The `csp-sfp-rover` service provides long-range telecommand and telemetry
 over UHF packet radio using the NinoTNC 9600A KISS TNC and a Baofeng radio:
 
@@ -138,7 +198,8 @@ systemctl status csp-rover.service
 
 ### RDP tuning (half-duplex UHF)
 
-Validated experimentally for NinoTNC + Baofeng:
+Tuned analytically (BDP-based) for NinoTNC + Baofeng — **pending hardware
+validation**:
 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
