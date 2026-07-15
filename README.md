@@ -31,8 +31,10 @@ which holds the IEEE 29148 SRS the design is traced to.
   `csp-rover` systemd service so it only runs when the TNC is connected.
   End-to-end UHF communication has **not** been validated yet.
 - **Verification status:** MSM HLC↔LLC bridge — verified; YOLOv8n-seg vision
-  (OV5647) — verified in lab; CSP/SFP over UHF — untested (pending hardware
-  validation); IMX219 CAM0 — configured, untested.
+  (OV5647 CAM1) — verified in lab; CSP/SFP over UHF — untested (pending hardware
+  validation); IMX219 CAM0 — configured, untested; performance tuning (governor
+  pin, rpicam-vid stream, onnxruntime backend) + RPi5 diagnostics telemetry —
+  implemented and unit-smoke-tested, pending on-Pi validation.
 
 ---
 
@@ -244,11 +246,15 @@ inactive — no wasted CPU or memory.
 | `olympus_controller.yaml` | Operational config at `/etc/olympus/` (editable without rebuilding) |
 | `yolov8n.onnx` | Obstacle detection model (YOLOv8n opset 12, 13 MB) |
 | `yolov8n-seg.onnx` | Segmentation model (YOLOv8n-seg opset 12, 14 MB — GNC-REQ-002) |
+| `lunar_seg_fp16.onnx` | Optimized lunar model (FP16, 27 MB — cv2.dnn-ready; see [docs/model-optimization.md](docs/model-optimization.md)) |
+| `yolov8n_int8.onnx` | INT8 bbox model (ORT-only, 3.5 MB — future-ready; see [docs/model-optimization.md](docs/model-optimization.md)) |
 | `custom-udev-rules` | Stable symlink `/dev/arduino_mega` |
 | `wifi-config` | Automatic WiFi connection (wpa_supplicant) |
 | `wifi-power-save` | WiFi power saving (systemd oneshot) |
 | `resize-rootfs` | rootfs expansion on first boot |
-| OpenCV (cv2.dnn) | Computer vision and ONNX inference |
+| OpenCV (cv2.dnn) | Computer vision and ONNX inference (default backend, FP32) |
+| `onnxruntime` | Optional inference backend (MLAS + thread pool; required for INT8 models). Switchable via `inference_backend` YAML knob. |
+| `SystemMonitor` | RPi5 CPU/RAM/SoC-temp sampling via stdlib `/proc` + `/sys` (no psutil) → `SYS:` frames to the GS diagnostics panel |
 | libcamera | CSI camera support (rpi/pisp pipeline, RPi5) |
 | `libcsp` | CSP library v4.2 (ELANav fork — SFP, RDP tuning, UDP, KISS interfaces) |
 | `libcsp_py3.so` | Python 3 CSP bindings (UDP init, KISS init, buffer management) |
@@ -278,6 +284,54 @@ Key parameters:
 | `batt_warn_mv` | 14000 | Battery WARN level (3.5 V/cell × 4S) |
 | `batt_critical_mv` | 12800 | Battery CRITICAL → force STB (3.2 V/cell × 4S) |
 | `vision_conf_min` | 0.5 | Minimum YOLOv8n detection confidence |
+| `governor_pin` | true | Pin CPU governor to `performance` during vision (recommendation B+D) |
+| `capture_method` | `rpicam-vid` | Persistent MJPEG stream (`rpicam-vid`, rec. C) vs per-frame `rpicam-still` |
+| `capture_framerate` | 4 | `rpicam-vid` stream framerate (fps) |
+| `capture_timeout_s` | 3.0 | s without a frame before falling back to `rpicam-still` |
+| `inference_backend` | `opencv` | `opencv` (cv2.dnn, default) or `onnxruntime` (MLAS; required for INT8 models) |
+| `infer_input_size` | 640 | ONNX blob side. Must match the model's export shape; lowering needs re-export (rec. F) |
+| `sys_mon_enabled` | true | Enable RPi5 CPU/RAM/temp sampling → `SYS:` frames to the GS panel |
+| `sys_sample_s` | 2.0 | SystemMonitor sample interval (s) |
+
+---
+
+## Performance tuning (vision mode)
+
+The vision pipeline exposes several runtime knobs (all in
+`olympus_controller.yaml`, no rebuild needed) that trade latency for power /
+accuracy. They map to the recommendations audited in
+[docs/model-optimization.md](docs/model-optimization.md):
+
+| Knob | Recommendation | Effect | Honest caveat |
+|------|----------------|--------|----------------|
+| `governor_pin` | B | Pins `scaling_governor=performance` + `scaling_min_freq=max_freq` for the vision session; reverted in `close()` | Needs root or a udev rule for sysfs write access |
+| `capture_method` | C | `rpicam-vid --codec mjpeg --output -` keeps the libcamera node warm between frames → expected ~30–80 ms/frame vs ~500 ms for `rpicam-still` | Auto-falls back to `rpicam-still` if `rpicam-vid` is absent or stalls |
+| `inference_backend` | E | `onnxruntime` uses MLAS fused conv kernels + thread pool; required to load `*_int8.onnx` artifacts | Needs `onnxruntime` in the image (already installed); falls back to `cv2.dnn` with a warning if the import fails |
+| `infer_input_size` | F | Lower input size halves conv cost | ONNX graphs are fixed-shape — lowering requires re-exporting the model at the new `imgsz` |
+
+`arm_freq` itself is boot-time firmware config and **cannot** be raised at
+runtime. To run the Pi above the default 1500 MHz cap, add
+`arm_freq=2400\nover_voltage=2` to `RPI_EXTRA_CONFIG` in `build/conf/local.conf`
+and reflash.
+
+---
+
+## RPi5 diagnostics → Ground Station
+
+`SystemMonitor` (`olympus_hlc/sysmon.py`) samples the Pi's CPU %, RAM
+used/total, and SoC temperature every `sys_sample_s` (default 2 s) and
+publishes them as `SYS:` frames on the existing TCP control pipe to the Ground
+Station GUI:
+
+```
+SYS:<cpu_pct>,<ram_used_mb>,<ram_total_mb>,<temp_c>
+```
+
+The GUI renders a "CONTROLADOR (RPi5)" panel with CPU/RAM/SoC-temp, color-coded
+(green < 70 % CPU, amber < 90 %, red ≥ 90 %; temp thresholds 65/75 °C). The
+sampler reads `/proc/stat`, `/proc/meminfo`, and `/sys/class/thermal/*`
+directly — **no `psutil` dependency** — so it adds zero packages to the image
+and degrades gracefully (returns 0 / `—` on hosts without those sysfs nodes).
 
 ---
 
@@ -352,6 +406,7 @@ The annotated frame shows:
 | [docs/testing.md](docs/testing.md) | How to test each component |
 | [docs/build-and-deploy.md](docs/build-and-deploy.md) | Build and flash the image |
 | [docs/decision-log.md](docs/decision-log.md) | Chronological design decision log |
+| [docs/model-optimization.md](docs/model-optimization.md) | ONNX model optimization pass (slim, ORT-fuse, INT8, FP16) — findings + honest regressions |
 
 ---
 
