@@ -162,6 +162,88 @@ SEG_ZONE_MIN      = float(_cfg.get("seg_zone_min",      0.05))   # Cobertura de 
 SEG_ROI_TOP       = float(_cfg.get("seg_roi_top",       0.5))    # Ignorar mitad superior del frame (obstáculos siempre en mitad inferior)
 SEG_MASK_THRESHOLD = float(_cfg.get("seg_mask_threshold", 0.5))  # Binarización sigmoide → bool (umbral canónico clasificador binario)
 
+# ─── Performance tuning (vision mode) ─────────────────────────────────────────
+#
+# CPU governor pinning (sistema de recomendaciones B + D). arm_freq está FIJO
+# en boot por config.txt (firmware) y NO se puede subir en runtime — para
+# pasar de 1500 a 2400 MHz hay que poner
+#     arm_freq=2400\nover_voltage=2
+# en RPI_EXTRA_CONFIG (build/conf/local.conf) y re-flashear. El knob de runtime
+# honesto es (B) fijar el governor a "performance" para que el CPU no baje de
+# frecuencia entre frames, y (D) poner scaling_min_freq = scaling_max_freq para
+# que la frecuencia se siente en su cap de boot durante toda la sesión de
+# visión. Ambos se revierten al valor previo en VisionSource.close().
+#
+# Requieren acceso de escritura a /sys/devices/system/cpu/cpu*/cpufreq/*: en
+# producción el HLC corre como root (ssh root@<IP>, seud olympus_hlc), así que
+# funciona sin reglas extra. Las custom-udev-rules que se despachan hoy NO
+# cubren cpufreq sysfs (solo tty e i2c); si se lanza el controlador como usuario
+# no-root, extremeá una regla udev adicional (RUN+= chmod) — fuera del alcance
+# actual. Sin acceso de escritura, _pin_cpu lo loguea como warning y continúa.
+#
+# Ref.: Linux CPUFreq governor documentation, §2.4 "performance governor".
+
+GOVERNOR_PIN       = bool(_cfg.get("governor_pin",       True))   # Activar pinning en init / revert en close
+GOVERNOR_VISION    = str (_cfg.get("governor_vision",    "performance"))  # Governor durante visión
+GOVERNOR_DEFAULT   = str (_cfg.get("governor_default",   "ondemand"))     # Restaurado al cerrar
+
+# ─── Capture backend ─────────────────────────────────────────────────────────
+#
+# Recomendación C: mantener el nodo libcamera caliente entre frames en lugar de
+# spawnear un `rpicam-still` POR frame (~300–700 ms de init de libcamera cada
+# vez). `rpicam-vid --codec mjpeg --output -` streamea bytes MJPEG a stdout que
+# parseamos incrementalmente; la cámara AWB/AEC converge una sola vez y se
+# mantiene caliente → esperado ~30–80 ms por frame.
+#
+# "rpicam-vid"  (default) — stream MJPEG persistente sobre un único Popen.
+# "rpicam-still"         — subprocess por frame heredado (fallback, ~500 ms/fr).
+# Si el stream rpicam-vid no entrega un frame en CAPTURE_TIMEOUT_S, la fuente
+# cae automáticamente a rpicam-still por el resto de la sesión.
+#
+# Ref.: Raspberry Pi libcamera-apps, `rpicam-vid(1)` §Output, "--codec mjpeg".
+CAPTURE_METHOD     = str (_cfg.get("capture_method",      "rpicam-vid"))
+CAPTURE_FRAMERATE  = int (_cfg.get("capture_framerate",    4))       # fps del stream
+CAPTURE_TIMEOUT_S  = float(_cfg.get("capture_timeout_s",   3.0))     # s antes de fallback
+
+# ─── Inference backend (recomendación E) ──────────────────────────────────────
+#
+# "opencv" (default)     — cv2.dnn.readNetFromONNX; funciona con la imagen
+#                          mínima actual (solo python3-opencv). Solo FP32.
+# "onnxruntime"          — ort.InferenceSession(providers=["CPUExecutionProvider"]);
+#                          más rápido (conv fusionadas MLAS + thread pool) y
+#                          NECESARIO para cargar los artefactos *_int8.onnx en
+#                          files/models-optimized/. Requiere `onnxruntime` en
+#                          IMAGE_INSTALL (meta-onnxruntime) — rebuild obligatorio
+#                          para habilitarlo (do_configure[network]=1 en la receta).
+#                          Si la importación falla en runtime, cae a opencv con
+#                          un warning.
+#
+# Ref.: onnxruntime Python API, `InferenceSession`, CPUExecutionProvider;
+#       MLAS fused aarch64 conv kernels.
+INFERENCE_BACKEND   = str (_cfg.get("inference_backend",  "opencv"))
+
+# INFER_INPUT_SIZE: lado del blob alimentado al modelo. DEBE coincidir con la
+# forma de exportación del ONNX (640 para yolov8n / yolov8n-seg, 384 lunar_seg).
+# Bajarlo a 480 (recomendación F) exige RE-EXPORTAR el modelo con ese imgsz —
+# no se puede alimentar 480×480 a un grafo ONNX de 640×640. El default mantiene
+# los modelos despachados hoy.
+INFER_INPUT_SIZE    = int (_cfg.get("infer_input_size",    640))
+
+# ─── System monitor (recursos del RPi5 → GUI) ─────────────────────────────────
+#
+# SystemMonitor (olympus_hlc/sysmon.py) muestrea CPU %, RAM usada/total y
+# temperatura del SoC del RPi5 leyendo directamente de /proc/stat, /proc/meminfo
+# y /sys/class/thermal/* — SIN psutil — y publica a la GUI vía frames SYS:
+# (formato: "SYS:<cpu%>,<ram_used_mb>,<ram_total_mb>,<temp_c>"). Sin dependencias
+# extra en la imagen Yocto (python3-core basta).
+#
+# sys_sample_s: intervalo de muestreo. La primera lectura de CPU % requiere dos
+# lecturas de /proc/stat; el baseline se toma en __init__, así que el primer
+# sample() ya entrega un valor válido. 2.0 s es ~0.5 Hz — barato y suficiente
+# para diagnóstico de latencia del vision loop.
+SYS_MON_ENABLED = bool(_cfg.get("sys_mon_enabled", True))
+SYS_SAMPLE_S    = float(_cfg.get("sys_sample_s",    2.0))
+
 # ─── Navegacion lunar (modo --mode vision-nav) ──────────────────────────────
 #
 # Integracion del modelo de segmentacion semantica lunar del TFG de Carlos

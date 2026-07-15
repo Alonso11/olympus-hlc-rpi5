@@ -25,6 +25,7 @@ from .monitors import (
 from .msm import RoverMSM, _send
 from .odometry import OdometryTracker
 from .slam import SemanticSLAM
+from .sysmon import SystemMonitor
 
 
 class HlcEngine:
@@ -68,6 +69,7 @@ class HlcEngine:
         self._thermal     = ThermalMonitor()
         self._safe_mode   = SafeMode()
         self._odometry    = OdometryTracker()
+        self._sysmon     = SystemMonitor()
 
         # SLAM semantico (solo modo vision-nav — integra mascaras de segmentacion
         # lunar al mapa de ocupacion usando la pose de OdometryTracker).
@@ -144,6 +146,12 @@ class HlcEngine:
                         )
 
                 self._keepalive()
+
+                # SystemMonitor: muestrea CPU/RAM/temp del RPi5 y reenvía SYS:
+                # a la GUI (throttled a sys_sample_s; None si no hay muestra fresca).
+                sys_sample = self._sysmon.sample()
+                if sys_sample is not None:
+                    self._source.on_sys(sys_sample)
 
                 # Vision: pausa entre frames (~20 Hz máximo)
                 if self._mode in ("vision", "vision-nav"):

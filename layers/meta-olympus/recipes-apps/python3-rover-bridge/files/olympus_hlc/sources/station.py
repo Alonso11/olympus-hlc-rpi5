@@ -13,7 +13,7 @@
 #   Puerto 5006 (control, bidireccional, texto por líneas)
 #       GUI → HLC : "MODE:MANUAL" | "MODE:AUTO" | "MODEL:YOLO" | "MODEL:LUNAR" |
 #                    "EXP:l:r" | "STB" | "RST" | "AVD:L" | "SAFE:FULL" ...
-#       HLC → GUI : "TLM:<frame>"  "CMD:<cmd>"  "EVT:<msg>"
+#       HLC → GUI : "TLM:<frame>"  "CMD:<cmd>"  "EVT:<msg>"  "SYS:<cpu>,<ram>,<temp>"
 #   Puerto 5005 (video, HLC → GUI): [4 bytes len big-endian][JPEG]
 #
 # Alcance MVP (Fase 0+1): manual + TLM + video. El modo AUTO (YOLO a bordo) es
@@ -223,6 +223,16 @@ class StationSource(CommandSource):
                     self._csv.flush()
                 except OSError:
                     pass
+
+    def on_sys(self, sample) -> None:
+        """Reenvía métricas de recursos del RPi5 (CPU/RAM/temp) como frame SYS:.
+
+        Format: SYS:<cpu_pct>,<ram_used_mb>,<ram_total_mb>,<temp_c>
+        Sampleado por SystemMonitor (olympus_hlc/sysmon.py) cada sys_sample_s;
+        la GUI lo parsea para el panel de diagnóstico del controlador (Diag).
+        No se persiste al CSV de TLM (es telemetría del HLC, no del LLC).
+        """
+        self._send_gui(sample.to_frame() + "\n")
 
     @property
     def last_recv_time(self) -> float:

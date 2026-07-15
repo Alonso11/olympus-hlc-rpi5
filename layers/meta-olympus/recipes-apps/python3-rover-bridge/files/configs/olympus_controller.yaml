@@ -230,6 +230,57 @@ seg_zone_min: 0.05
 # Con cámara horizontal: 0.5. Inclinada hacia abajo: bajar hacia 0.3.
 seg_roi_top: 0.5
 
+# ─── Performance tuning (modo --mode vision / --mode vision-nav) ─────────────
+#
+# Pin del governor CPU + floor de frecuencia durante la sesión de visión para
+# evitar que el CPU baje de frecuencia entre frames (aceelerando la inferencia).
+# Se revierte automáticamente al cerrar la fuente.
+#
+# arm_freq mismo es fijado en boot por config.txt (firmware): NO se puede subir
+# en runtime. Para > 1500 MHz poner `arm_freq=2400` + `over_voltage=2` en
+# RPI_EXTRA_CONFIG (build/conf/local.conf) y re-flashear.
+governor_pin: true
+governor_vision: performance
+governor_default: ondemand
+
+# ─── Capture backend ─────────────────────────────────────────────────────────
+#
+# rpicam-vid (default): stream MJPEG persistente — la cámara se mantiene
+# caliente entre frames (esperado ~30–80 ms/frame vs ~500 ms del per-frame).
+# rpicam-still: subprocess por frame heredado (fallback). Si el rpicam-vid no
+# entrega un frame en capture_timeout_s, cae automáticamente a rpicam-still.
+capture_method: rpicam-vid
+capture_framerate: 4
+capture_timeout_s: 3.0
+
+# ─── Inference backend ───────────────────────────────────────────────────────
+#
+# opencv (default): cv2.dnn.readNetFromONNX — solo FP32, funciona sin rebuild.
+# onnxruntime    : ort.InferenceSession — más rápido (MLAS + thread pool) y
+#                  requerido para cargar los *_int8.onnx en
+#                  files/models-optimized/. Necesita `onnxruntime` en la imagen
+#                  (ya agregado a IMAGE_INSTALL — rebuild obligatorio). Si la
+#                  importación falla en runtime, cae a opencv con un warning.
+inference_backend: opencv
+
+# Tamaño del blob alimentado al modelo. DEBE coincidir con la forma de
+# exportación del ONNX: 640 para yolov8n / yolov8n-seg, 384 para lunar_seg.
+# Bajarlo (ej. 480 para bbox — recomendación F) exige RE-EXPORTAR el modelo a
+# ese imgsz; no se puede alimentar 480×480 a un grafo ONNX de 640×640.
+infer_input_size: 640
+
+# ─── System monitor (recursos del RPi5 → GUI) ─────────────────────────────────
+#
+# SystemMonitor muestrea CPU %, RAM usada/total y temperatura del SoC del RPi5
+# leyendo directamente de /proc y /sys — SIN psutil — y emite frames SYS: a la
+# GUI (panel de diagnóstico). No añade dependencias a la imagen Yocto.
+#
+# sys_sample_s: intervalo entre muestras. La primera lectura de CPU % necesita
+# dos lecturas de /proc/stat; el baseline se toma en __init__, así que el primer
+# sample() ya entrega un valor válido. 2 s es ~0.5 Hz — barato y suficiente.
+sys_mon_enabled: true
+sys_sample_s: 2.0
+
 # ─── Navegacion lunar (modo --mode vision-nav) ──────────────────────────────
 #
 # Integracion del modelo de segmentacion semantica lunar del TFG de Carlos

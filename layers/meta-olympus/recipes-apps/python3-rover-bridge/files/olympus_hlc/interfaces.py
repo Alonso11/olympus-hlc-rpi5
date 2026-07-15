@@ -5,6 +5,7 @@
 #
 # Métodos con implementación por defecto (comportamiento neutro):
 #   on_tlm()        — solo GCSSource reenvía TLM al GCS; otros ignoran
+#   on_sys()        — solo StationSource reenvía métricas SYS: del RPi5 a la GUI
 #   last_recv_time  — ManualSource/VisionSource siempre "conectados"
 #   send_probe()    — solo GCSSource envía HB_REQ al GCS; otros no hacen nada
 #   make_link_monitor() — solo GCSSource retorna un CommLinkMonitor
@@ -28,6 +29,15 @@ class CommandSource(abc.ABC):
         Llamado cuando el HLC recibe un frame TLM del Arduino.
         GCSSource lo usa para reenviar el TLM al GCS (downlink SRS-020).
         El resto de fuentes no hace nada.
+        """
+        pass
+
+    def on_sys(self, sample: "object") -> None:  # noqa: ARG002
+        """
+        Llamado cuando SystemMonitor produce una SystemSample fresca (CPU/RAM/
+        temp del RPi5). StationSource la reenvía como frame SYS: a la GUI
+        (downlink de diagnóstico). El resto de fuentes no hace nada.
+        sample: olympus_hlc.sysmon.SystemSample — ver to_frame().
         """
         pass
 
